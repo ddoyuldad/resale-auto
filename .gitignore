@@ -1,0 +1,19 @@
+# 환경변수 (API 키 보호)
+.env
+ 
+# 자동 생성 임시 파일
+.webapp_state.json
+*.state.json
+ 
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+ 
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
