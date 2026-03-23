@@ -1,0 +1,742 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
+    <title>매입건 자동화</title>
+    <style>
+        :root {
+            --primary: #2563eb; --primary-dark: #1d4ed8; --primary-light: #dbeafe;
+            --success: #059669; --success-light: #d1fae5;
+            --warning: #d97706; --warning-light: #fef3c7;
+            --danger: #dc2626; --danger-light: #fee2e2;
+            --purple: #7c3aed; --purple-light: #ede9fe;
+            --bg: #f8fafc; --card: #ffffff; --text: #0f172a;
+            --text-secondary: #475569; --text-muted: #94a3b8;
+            --border: #e2e8f0; --border-light: #f1f5f9;
+            --shadow-sm: 0 1px 2px rgba(0,0,0,0.05);
+            --shadow: 0 1px 3px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.04);
+            --shadow-md: 0 4px 6px -1px rgba(0,0,0,0.07), 0 2px 4px -1px rgba(0,0,0,0.04);
+            --shadow-lg: 0 10px 25px -5px rgba(0,0,0,0.08), 0 4px 10px -5px rgba(0,0,0,0.04);
+            --radius: 12px; --radius-sm: 8px; --radius-xs: 6px;
+        }
+        * { margin:0; padding:0; box-sizing:border-box; }
+        body { font-family: -apple-system,BlinkMacSystemFont,'Segoe UI','Malgun Gothic',sans-serif; background:var(--bg); color:var(--text); line-height:1.6; }
+
+        /* ─── Header ─── */
+        .header { background:#0f172a; color:white; padding:16px 32px; display:flex; align-items:center; justify-content:space-between; }
+        .header-left { display:flex; align-items:center; gap:14px; }
+        .header-logo { width:36px; height:36px; background:var(--primary); border-radius:10px; display:flex; align-items:center; justify-content:center; font-size:18px; }
+        .header h1 { font-size:18px; font-weight:700; letter-spacing:-0.3px; }
+        .header .version { font-size:11px; color:var(--text-muted); margin-left:8px; font-weight:400; }
+        .api-badges { display:flex; gap:6px; }
+        .badge { font-size:10px; padding:3px 8px; border-radius:20px; font-weight:600; letter-spacing:0.3px; }
+        .badge.on { background:rgba(5,150,105,0.15); color:#34d399; }
+        .badge.off { background:rgba(239,68,68,0.15); color:#fca5a5; }
+
+        /* ─── Layout ─── */
+        .layout { display:grid; grid-template-columns:220px 1fr; min-height:calc(100vh - 56px); }
+        @media(max-width:900px) { .layout { grid-template-columns:1fr; } .sidebar { display:none; } }
+
+        /* ─── Sidebar ─── */
+        .sidebar { background:white; border-right:1px solid var(--border); padding:20px 0; position:sticky; top:0; height:calc(100vh - 56px); overflow-y:auto; }
+        .sidebar-item { display:flex; align-items:center; gap:10px; padding:10px 20px; cursor:pointer; font-size:13px; color:var(--text-secondary); transition:all 0.15s; border-left:3px solid transparent; }
+        .sidebar-item:hover { background:var(--border-light); color:var(--text); }
+        .sidebar-item.active { background:var(--primary-light); color:var(--primary); border-left-color:var(--primary); font-weight:600; }
+        .sidebar-item.done { color:var(--success); }
+        .sidebar-item .step-badge { width:22px; height:22px; border-radius:6px; display:flex; align-items:center; justify-content:center; font-size:11px; font-weight:700; background:var(--border-light); color:var(--text-muted); flex-shrink:0; }
+        .sidebar-item.active .step-badge { background:var(--primary); color:white; }
+        .sidebar-item.done .step-badge { background:var(--success); color:white; }
+
+        /* ─── Step Panel (스크롤 대상) ─── */
+        .step-panel { scroll-margin-top: 16px; padding-top:4px; }
+        .step-panel + .step-panel { margin-top:8px; border-top:1px solid var(--border-light); padding-top:20px; }
+
+        /* ─── Main Content ─── */
+        .main { padding:24px 32px; max-width:960px; }
+        .card { background:var(--card); border:1px solid var(--border); border-radius:var(--radius); padding:24px; margin-bottom:16px; box-shadow:var(--shadow-sm); }
+        .card-header { display:flex; align-items:center; gap:10px; margin-bottom:4px; }
+        .card-header h2 { font-size:17px; font-weight:700; letter-spacing:-0.2px; }
+        .card-desc { color:var(--text-secondary); font-size:13px; margin-bottom:20px; line-height:1.5; }
+
+        /* ─── Buttons ─── */
+        .btn { padding:9px 18px; border:none; border-radius:var(--radius-sm); font-size:13px; font-weight:600; cursor:pointer; transition:all 0.15s; display:inline-flex; align-items:center; gap:6px; }
+        .btn-primary { background:var(--primary); color:white; }
+        .btn-primary:hover { background:var(--primary-dark); box-shadow:var(--shadow-md); }
+        .btn-success { background:var(--success); color:white; }
+        .btn-warning { background:var(--warning); color:white; }
+        .btn-danger { background:var(--danger); color:white; }
+        .btn-ghost { background:transparent; color:var(--primary); border:1.5px solid var(--border); }
+        .btn-ghost:hover { border-color:var(--primary); background:var(--primary-light); }
+        .btn-lg { padding:12px 24px; font-size:14px; }
+        .btn:disabled { opacity:0.4; cursor:not-allowed; }
+        .btn-group { display:flex; gap:8px; flex-wrap:wrap; }
+
+        /* ─── Form ─── */
+        .input-row { display:flex; gap:8px; margin-bottom:16px; }
+        .input-row input { flex:1; padding:10px 14px; border:1.5px solid var(--border); border-radius:var(--radius-sm); font-size:13px; outline:none; transition:border-color 0.15s; }
+        .input-row input:focus { border-color:var(--primary); box-shadow:0 0 0 3px rgba(37,99,235,0.1); }
+
+        /* ─── Progress (항상 상단 고정) ─── */
+        .progress-banner { background:white; border:1px solid var(--border); border-radius:var(--radius); padding:16px 20px; margin-bottom:16px; box-shadow:var(--shadow); position:sticky; top:0; z-index:50; }
+        .progress-banner.hidden { display:none; }
+        .progress-top { display:flex; align-items:center; justify-content:space-between; margin-bottom:8px; }
+        .progress-top .title { font-size:14px; font-weight:600; display:flex; align-items:center; gap:8px; }
+        .progress-top .pct { font-size:13px; font-weight:700; color:var(--primary); }
+        .progress-bar { width:100%; height:6px; background:var(--border-light); border-radius:3px; overflow:hidden; }
+        .progress-fill { height:100%; background:linear-gradient(90deg,var(--primary),#60a5fa); border-radius:3px; transition:width 0.4s ease; width:0%; }
+        .progress-msg { font-size:12px; color:var(--text-muted); margin-top:6px; }
+        .log-box { background:#0f172a; color:#94a3b8; border-radius:var(--radius-sm); padding:12px 14px; font-family:'Consolas','Monaco','Courier New',monospace; font-size:12px; max-height:200px; overflow-y:auto; margin-top:10px; line-height:1.7; }
+        .log-box .log-success { color:#4ade80; }
+        .log-box .log-error { color:#f87171; }
+        .log-box .log-info { color:#60a5fa; }
+
+        /* ─── Folder Info ─── */
+        .folder-info { display:flex; gap:14px; align-items:center; background:var(--primary-light); border:1px solid #93c5fd; border-radius:var(--radius-sm); padding:12px 16px; margin:12px 0; }
+        .folder-info .icon { font-size:24px; }
+        .folder-info .path { font-weight:600; font-size:13px; word-break:break-all; }
+        .folder-info .count { font-size:12px; color:var(--text-secondary); }
+
+        /* ─── Tags ─── */
+        .tag-list { display:flex; flex-wrap:wrap; gap:6px; margin-top:10px; }
+        .tag { background:var(--border-light); border:1px solid var(--border); padding:4px 10px; border-radius:var(--radius-xs); font-size:12px; color:var(--text-secondary); }
+        .tag b { color:var(--text); }
+
+        /* ─── Image Grid ─── */
+        .img-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(90px,1fr)); gap:6px; margin-top:12px; }
+        .img-grid img { width:100%; height:80px; object-fit:cover; border-radius:var(--radius-xs); border:1px solid var(--border); }
+
+        /* ─── Product Grid ─── */
+        .product-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(260px,1fr)); gap:12px; margin-top:14px; }
+        .product-card { background:white; border:1px solid var(--border); border-radius:var(--radius); padding:14px; transition:box-shadow 0.15s; }
+        .product-card:hover { box-shadow:var(--shadow-md); }
+        .product-card .thumb { width:100%; height:140px; object-fit:contain; border-radius:var(--radius-xs); background:var(--border-light); margin-bottom:10px; }
+        .product-card .name { font-weight:700; font-size:14px; margin-bottom:4px; }
+        .product-card .meta { font-size:11px; color:var(--text-muted); display:flex; gap:10px; }
+
+        /* ─── Model Cards ─── */
+        .model-grid { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin:12px 0; }
+        @media(max-width:600px) { .model-grid { grid-template-columns:1fr; } }
+        .model-card { border:2px solid var(--border); border-radius:var(--radius); padding:12px 14px; cursor:pointer; transition:all 0.15s; }
+        .model-card:hover { border-color:#93c5fd; background:rgba(37,99,235,0.02); }
+        .model-card.selected { border-color:var(--primary); background:var(--primary-light); }
+        .model-card .model-name { font-weight:600; font-size:13px; margin-bottom:2px; }
+        .model-card .model-desc { font-size:11px; color:var(--text-muted); margin-bottom:4px; }
+        .model-card .model-meta { font-size:10px; color:var(--text-secondary); }
+        .model-tag { display:inline-block; font-size:10px; font-weight:700; padding:1px 6px; border-radius:4px; margin-right:4px; }
+        .model-tag.free { background:#d1fae5; color:#059669; }
+        .model-tag.paid { background:#fee2e2; color:#dc2626; }
+
+        /* ─── Results ─── */
+        .stat-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); gap:10px; margin:14px 0; }
+        .stat-card { padding:14px; border-radius:var(--radius-sm); text-align:center; }
+        .stat-card .num { font-size:24px; font-weight:800; }
+        .stat-card .label { font-size:11px; margin-top:2px; font-weight:500; }
+        .stat-blue { background:var(--primary-light); color:var(--primary-dark); }
+        .stat-green { background:var(--success-light); color:var(--success); }
+        .stat-orange { background:var(--warning-light); color:var(--warning); }
+        .stat-purple { background:var(--purple-light); color:var(--purple); }
+
+        .data-table { width:100%; border-collapse:collapse; font-size:12px; margin-top:8px; }
+        .data-table th { background:var(--border-light); padding:8px 10px; text-align:left; font-weight:600; color:var(--text-secondary); font-size:11px; text-transform:uppercase; letter-spacing:0.5px; }
+        .data-table td { padding:8px 10px; border-bottom:1px solid var(--border-light); }
+        .data-table tr:hover td { background:var(--border-light); }
+
+        /* ─── CTA Banner ─── */
+        .cta-banner { background:linear-gradient(135deg,#0f172a 0%,#1e40af 100%); color:white; border-radius:var(--radius); padding:20px 24px; margin-bottom:16px; display:flex; align-items:center; justify-content:space-between; }
+        .cta-banner h3 { font-size:16px; margin-bottom:2px; }
+        .cta-banner p { font-size:12px; opacity:0.7; }
+        .cta-banner .btn { background:rgba(255,255,255,0.15); color:white; backdrop-filter:blur(4px); }
+        .cta-banner .btn:hover { background:rgba(255,255,255,0.25); }
+
+        /* ─── Next Step Guide ─── */
+        .next-guide { background:var(--success-light); border:1px solid #86efac; border-radius:var(--radius-sm); padding:14px 18px; text-align:center; margin-top:16px; }
+        .next-guide p { font-size:13px; font-weight:600; color:var(--success); margin-bottom:10px; }
+
+        /* ─── Detail Result Grid ─── */
+        .detail-result { background:var(--border-light); border-radius:var(--radius-sm); padding:12px; margin-top:8px; }
+        .detail-result .dr-name { font-weight:600; font-size:13px; margin-bottom:2px; }
+        .detail-result .dr-count { font-size:11px; color:var(--text-muted); margin-bottom:6px; }
+        .detail-thumbs { display:flex; flex-wrap:wrap; gap:4px; }
+        .detail-thumbs img { width:60px; height:78px; object-fit:cover; border-radius:var(--radius-xs); border:1px solid var(--border); cursor:pointer; transition:transform 0.1s; }
+        .detail-thumbs img:hover { transform:scale(1.05); }
+
+        .hidden { display:none !important; }
+        .spinner { display:inline-block; width:14px; height:14px; border:2px solid rgba(255,255,255,0.3); border-radius:50%; border-top-color:white; animation:spin 0.8s linear infinite; }
+        @keyframes spin { to { transform:rotate(360deg); } }
+        @keyframes pulse { 0%,100%{opacity:1;} 50%{opacity:0.5;} }
+        .animate-pulse { animation:pulse 2s ease-in-out infinite; }
+    </style>
+</head>
+<body>
+
+<!-- ─── Header ─── -->
+<div class="header">
+    <div class="header-left">
+        <div class="header-logo">📦</div>
+        <div>
+            <h1>매입건 자동화 <span class="version">v2.1</span></h1>
+        </div>
+    </div>
+    <div class="api-badges" id="apiBadges"></div>
+</div>
+
+<!-- ─── Layout ─── -->
+<div class="layout">
+
+    <!-- Sidebar -->
+    <nav class="sidebar">
+        <div class="sidebar-item active" onclick="showStep(0)">
+            <div class="step-badge">1</div> 폴더 선택
+        </div>
+        <div class="sidebar-item" onclick="showStep(1)">
+            <div class="step-badge">2</div> 제품 분류
+        </div>
+        <div class="sidebar-item" onclick="showStep(2)">
+            <div class="step-badge">3</div> 엑셀 생성
+        </div>
+        <div class="sidebar-item" onclick="showStep(3)">
+            <div class="step-badge">4</div> 최저가 조회
+        </div>
+        <div class="sidebar-item" onclick="showStep(4)">
+            <div class="step-badge">5</div> 상세페이지
+        </div>
+        <div class="sidebar-item" onclick="showStep(5)">
+            <div class="step-badge">6</div> 쿠팡 등록
+        </div>
+    </nav>
+
+    <!-- Main -->
+    <div class="main">
+
+        <!-- ★ 진행 상태 배너 (항상 최상단) ★ -->
+        <div class="progress-banner hidden" id="progressCard">
+            <div class="progress-top">
+                <div class="title" id="progressTitle"><span class="animate-pulse">⏳</span> 작업 진행 중...</div>
+                <div class="pct" id="progressPct">0%</div>
+            </div>
+            <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
+            <div class="progress-msg" id="progressMsg">준비 중...</div>
+            <div class="log-box" id="logBox"></div>
+        </div>
+
+        <!-- ─── Step 0: 폴더 선택 ─── -->
+        <div class="step-panel" id="step0">
+            <div class="cta-banner">
+                <div>
+                    <h3>전체 자동 실행</h3>
+                    <p>폴더 선택 후 모든 단계를 한번에 실행합니다</p>
+                </div>
+                <div class="btn-group">
+                    <button class="btn" onclick="runAll('existing')">📂 기존 폴더 기준</button>
+                    <button class="btn" onclick="runAll('ai')">🤖 AI 자동 분류</button>
+                </div>
+            </div>
+            <div class="card">
+                <div class="card-header"><h2>📂 이미지 폴더 선택</h2></div>
+                <p class="card-desc">매입 제품 이미지가 들어있는 폴더를 선택해 주세요.</p>
+                <div class="input-row">
+                    <input type="text" id="folderPath" placeholder="C:\Users\사용자\Downloads\매입건" />
+                    <button class="btn btn-primary" onclick="browseFolder()">📁 폴더 찾기</button>
+                    <button class="btn btn-ghost" onclick="selectFolder()">확인</button>
+                </div>
+                <div id="folderResult"></div>
+            </div>
+        </div>
+
+        <!-- ─── Step 1: 제품 분류 ─── -->
+        <div class="step-panel" id="step1">
+            <div class="card">
+                <div class="card-header"><h2>🔍 제품 분류</h2></div>
+                <p class="card-desc">이미지를 분석해서 제품별로 자동 분류합니다.</p>
+                <div class="btn-group">
+                    <button class="btn btn-primary" onclick="runStep1('existing')">📂 기존 폴더 구조 사용</button>
+                    <button class="btn btn-success" onclick="runStep1('ai')">🤖 AI 자동 분류</button>
+                </div>
+                <div id="step1Result" style="margin-top:14px;"></div>
+            </div>
+            <div id="productsSection" class="hidden">
+                <div class="card">
+                    <div class="card-header"><h2>📋 분류된 제품</h2></div>
+                    <div id="productGrid" class="product-grid"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ─── Step 2: 엑셀 ─── -->
+        <div class="step-panel" id="step2">
+            <div class="card">
+                <div class="card-header"><h2>📊 엑셀 자동 생성</h2></div>
+                <p class="card-desc">제품 정보 + 썸네일 포함 엑셀 파일을 생성합니다. (22개 컬럼)</p>
+                <button class="btn btn-primary btn-lg" onclick="runStep2()">📊 엑셀 생성</button>
+                <div id="step2Result" style="margin-top:14px;"></div>
+            </div>
+        </div>
+
+        <!-- ─── Step 3: 최저가 ─── -->
+        <div class="step-panel" id="step3">
+            <div class="card">
+                <div class="card-header"><h2>🔍 네이버 최저가 조회</h2></div>
+                <p class="card-desc">네이버 쇼핑 API로 각 제품의 온라인 최저가를 조회하고 엑셀에 자동 입력합니다.</p>
+                <button class="btn btn-primary btn-lg" onclick="runStep3()">🔍 최저가 조회</button>
+                <div id="step3Result" style="margin-top:14px;"></div>
+            </div>
+        </div>
+
+        <!-- ─── Step 4: 상세페이지 AI 이미지 ─── -->
+        <div class="step-panel" id="step4">
+            <div class="card">
+                <div class="card-header"><h2>🎨 상세페이지 AI 이미지 생성</h2></div>
+                <p class="card-desc">
+                    Google Gemini AI가 제품 사진을 분석하고, 누끼컷 → 배경합성 → 상세페이지 이미지 12장을 자동 생성합니다.
+                </p>
+
+                <!-- 모델 선택 -->
+                <div style="margin-bottom:16px;">
+                    <div style="font-size:13px; font-weight:600; margin-bottom:8px; color:var(--text-secondary);">AI 모델 선택</div>
+                    <div id="modelCards" class="model-grid"></div>
+                </div>
+
+                <!-- 생성 과정 안내 -->
+                <div style="background:var(--border-light); border-radius:var(--radius-sm); padding:12px 16px; margin-bottom:16px; font-size:12px; color:var(--text-secondary); line-height:1.8;">
+                    <strong>생성 과정:</strong> 제품 분석 → 누끼컷 3장 → 라이프스타일 배경 1장 → 상세페이지 12장 (후킹/고민공감/솔루션/특징3/활용법/스펙/리뷰/가성비/배송/CTA)
+                </div>
+
+                <button class="btn btn-primary btn-lg" onclick="runStep4()" id="btnRunStep4">🎨 상세페이지 생성 시작</button>
+                <div id="step4Result" style="margin-top:14px;"></div>
+            </div>
+        </div>
+
+        <!-- ─── Step 5: 쿠팡 등록 ─── -->
+        <div class="step-panel" id="step5">
+            <div class="card">
+                <div class="card-header"><h2>📦 쿠팡 상품 등록</h2></div>
+                <p class="card-desc">쿠팡 OPEN API를 통해 상품 등록 데이터(JSON)를 생성합니다.</p>
+                <div class="btn-group">
+                    <button class="btn btn-primary btn-lg" onclick="runStep5(false)">💾 등록 데이터 생성</button>
+                    <button class="btn btn-danger btn-lg" onclick="runStep5(true)">🚀 실제 쿠팡 등록</button>
+                </div>
+                <p style="color:var(--danger); font-size:11px; margin-top:8px;">⚠️ "실제 쿠팡 등록"은 실제로 상품이 등록됩니다. 데이터를 먼저 확인하세요.</p>
+                <div id="step5Result" style="margin-top:14px;"></div>
+            </div>
+        </div>
+
+        <!-- ─── 결과 요약 ─── -->
+        <div class="card hidden" id="resultsCard">
+            <div class="card-header"><h2>📊 실행 결과</h2></div>
+            <div id="resultsContent"></div>
+        </div>
+
+    </div>
+</div>
+
+<script>
+// ─── State ──────────────────────────────────────────────
+let currentStep = 0, pollTimer = null, completedSteps = new Set(), selectedModelNo = 1;
+
+// ─── Init ───────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', () => {
+    fetchStatus();
+    loadProducts();
+    loadResults();
+    loadModels();
+});
+
+// ─── Navigation (스크롤 이동 방식) ────────────────────────
+let isScrolling = false; // 프로그래밍 스크롤 중 Observer 무시
+function showStep(idx) {
+    currentStep = idx;
+    document.querySelectorAll('.sidebar-item').forEach((t,i) => t.classList.toggle('active', i===idx));
+    const panel = document.getElementById('step'+idx);
+    if (panel) {
+        isScrolling = true;
+        panel.scrollIntoView({ behavior:'smooth', block:'start' });
+        setTimeout(() => { isScrolling = false; }, 800);
+    }
+}
+function markStepDone(idx) {
+    completedSteps.add(idx);
+    const items = document.querySelectorAll('.sidebar-item');
+    if (items[idx]) items[idx].classList.add('done');
+}
+
+// ─── IntersectionObserver (스크롤에 따라 사이드바 하이라이트) ──
+(function initScrollSpy() {
+    const panels = document.querySelectorAll('.step-panel');
+    const sideItems = document.querySelectorAll('.sidebar-item');
+    const observer = new IntersectionObserver(entries => {
+        if (isScrolling) return;
+        entries.forEach(entry => {
+            if (entry.isIntersecting) {
+                const id = entry.target.id;
+                const idx = parseInt(id.replace('step',''));
+                if (!isNaN(idx)) {
+                    currentStep = idx;
+                    sideItems.forEach((t,i) => t.classList.toggle('active', i===idx));
+                }
+            }
+        });
+    }, { rootMargin:'-10% 0px -70% 0px', threshold:0 });
+    panels.forEach(p => observer.observe(p));
+})();
+
+// ─── API Status ─────────────────────────────────────────
+async function fetchStatus() {
+    try {
+        const res = await fetch('/api/status');
+        const d = await res.json();
+        const k = d.api_keys;
+        document.getElementById('apiBadges').innerHTML = `
+            <span class="badge ${k.naver?'on':'off'}">네이버 ${k.naver?'✓':'✗'}</span>
+            <span class="badge ${k.gemini?'on':'off'}">Gemini ${k.gemini?'✓':'✗'}</span>
+            <span class="badge ${k.coupang?'on':'off'}">쿠팡 ${k.coupang?'✓':'✗'}</span>`;
+        if (d.source_folder) document.getElementById('folderPath').value = d.source_folder;
+    } catch(e) { console.error(e); }
+}
+
+// ─── Folder ─────────────────────────────────────────────
+function showFolderInputModal() {
+    // 기존 모달이 있으면 제거
+    const existing = document.getElementById('folderInputModal');
+    if (existing) existing.remove();
+
+    const modal = document.createElement('div');
+    modal.id = 'folderInputModal';
+    modal.style.cssText = `
+        position:fixed; top:0; left:0; width:100%; height:100%;
+        background:rgba(0,0,0,0.5); z-index:9999;
+        display:flex; align-items:center; justify-content:center;
+    `;
+    modal.innerHTML = `
+        <div style="background:#fff; border-radius:12px; padding:28px 32px; width:520px; max-width:90vw; box-shadow:0 8px 32px rgba(0,0,0,0.2);">
+            <h3 style="margin:0 0 8px; font-size:17px;">📁 폴더 경로 직접 입력</h3>
+            <p style="margin:0 0 16px; font-size:13px; color:#666; line-height:1.6;">
+                아래 방법으로 경로를 복사한 뒤 붙여넣기 해주세요.<br>
+                <b>① 탐색기에서 폴더 열기</b> → <b>② 상단 주소창 클릭</b> → <b>③ Ctrl+C 복사</b>
+            </p>
+            <input id="modalFolderInput" type="text" placeholder="예) C:\\Users\\홍길동\\Desktop\\매입이미지"
+                style="width:100%; padding:10px 12px; border:1.5px solid #ccc; border-radius:8px; font-size:14px; box-sizing:border-box; outline:none;" />
+            <div style="margin-top:16px; display:flex; gap:10px; justify-content:flex-end;">
+                <button onclick="document.getElementById('folderInputModal').remove()"
+                    style="padding:9px 20px; border:1.5px solid #ccc; background:#fff; border-radius:8px; cursor:pointer; font-size:14px;">취소</button>
+                <button onclick="applyModalFolder()"
+                    style="padding:9px 20px; background:#2563eb; color:#fff; border:none; border-radius:8px; cursor:pointer; font-size:14px; font-weight:600;">확인</button>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(modal);
+
+    const input = document.getElementById('modalFolderInput');
+    // 현재 입력창 값이 있으면 미리 채워두기
+    const current = document.getElementById('folderPath').value.trim();
+    if (current) input.value = current;
+    input.focus();
+    input.addEventListener('keydown', e => { if (e.key === 'Enter') applyModalFolder(); });
+    modal.addEventListener('click', e => { if (e.target === modal) modal.remove(); });
+}
+
+function applyModalFolder() {
+    const path = document.getElementById('modalFolderInput').value.trim();
+    if (!path) { alert('경로를 입력해 주세요.'); return; }
+    document.getElementById('folderInputModal').remove();
+    document.getElementById('folderPath').value = path;
+    selectFolder();
+}
+
+async function browseFolder() {
+    try {
+        const res = await fetch('/api/browse-folder', {method:'POST'});
+        const d = await res.json();
+        if (d.error) { showFolderInputModal(); return; }
+        if (d.cancelled) return;
+        if (d.folder_path) { document.getElementById('folderPath').value = d.folder_path; selectFolder(); }
+    } catch(e) {
+        // tkinter를 사용할 수 없는 환경 → 직접 입력 모달로 대체
+        showFolderInputModal();
+    }
+}
+
+async function selectFolder() {
+    const path = document.getElementById('folderPath').value.trim();
+    if (!path) { alert('폴더 경로를 입력해 주세요.'); return; }
+    try {
+        const res = await fetch('/api/select-folder', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({folder_path:path})});
+        const d = await res.json();
+        if (d.error) { alert(d.error); return; }
+
+        let html = `<div class="folder-info"><div class="icon">📂</div><div><div class="path">${d.folder}</div><div class="count">이미지 ${d.image_count}개 발견</div></div></div>`;
+
+        if (d.subfolders && d.subfolders.length > 0) {
+            html += `<div style="font-size:13px;font-weight:600;margin-top:14px;">이미 분류된 폴더 (${d.subfolders.length}개)</div>`;
+            html += '<div class="tag-list">';
+            d.subfolders.forEach(sf => { html += `<div class="tag">${sf.name} <b>${sf.image_count}장</b></div>`; });
+            html += '</div>';
+        }
+        if (d.images && d.images.length > 0) {
+            html += '<div class="img-grid">';
+            d.images.slice(0,12).forEach(img => { html += `<img src="/api/image?path=${encodeURIComponent(d.folder+'/'+img)}" alt="${img}" title="${img}" />`; });
+            html += '</div>';
+        }
+        html += `<div class="next-guide"><p>✅ 폴더 선택 완료</p><div class="btn-group" style="justify-content:center;"><button class="btn btn-primary" onclick="showStep(1)">다음: 제품 분류 →</button><button class="btn btn-success" onclick="runAll('existing')">🚀 전체 자동 실행</button></div></div>`;
+        document.getElementById('folderResult').innerHTML = html;
+        markStepDone(0);
+    } catch(e) { alert('오류: '+e.message); }
+}
+
+// ─── Step 1 ─────────────────────────────────────────────
+async function runStep1(mode) {
+    if (!confirm(mode==='ai'?'AI 자동 분류를 시작할까요?':'기존 폴더 구조를 읽어올까요?')) return;
+    startTask('step1');
+    try {
+        const res = await fetch('/api/step1/classify',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({mode})});
+        const d = await res.json();
+        if (d.error) { alert(d.error); stopTask(); return; }
+        pollProgress(() => { markStepDone(1); loadProducts(); });
+    } catch(e) { alert('오류: '+e.message); stopTask(); }
+}
+
+// ─── Step 2 ─────────────────────────────────────────────
+async function runStep2() {
+    startTask('step2');
+    try {
+        const res = await fetch('/api/step2/excel',{method:'POST'});
+        const d = await res.json();
+        if (d.error) { alert(d.error); stopTask(); return; }
+        pollProgress(() => markStepDone(2));
+    } catch(e) { alert('오류: '+e.message); stopTask(); }
+}
+
+// ─── Step 3 ─────────────────────────────────────────────
+async function runStep3() {
+    startTask('step3');
+    try {
+        const res = await fetch('/api/step3/naver',{method:'POST'});
+        const d = await res.json();
+        if (d.error) { alert(d.error); stopTask(); return; }
+        pollProgress(() => markStepDone(3));
+    } catch(e) { alert('오류: '+e.message); stopTask(); }
+}
+
+// ─── Step 4: AI 상세페이지 ──────────────────────────────
+async function loadModels() {
+    try {
+        const res = await fetch('/api/step4/models');
+        const d = await res.json();
+        const el = document.getElementById('modelCards');
+        if (!el) return;
+        el.innerHTML = '';
+        d.models.forEach(m => {
+            const sel = m.no===selectedModelNo ? 'selected' : '';
+            const tag = m.free ? '<span class="model-tag free">무료</span>' : '<span class="model-tag paid">유료</span>';
+            el.innerHTML += `
+                <div class="model-card ${sel}" onclick="selectModel(${m.no})" id="mc${m.no}">
+                    <div class="model-name">${tag} ${m.name}</div>
+                    <div class="model-desc">${m.desc}</div>
+                    <div class="model-meta">💰 ${m.price} &nbsp;|&nbsp; 🎨 ${m.quality} &nbsp; ⚡ ${m.speed}</div>
+                </div>`;
+        });
+        if (!d.gemini_key_set) {
+            document.getElementById('btnRunStep4').disabled = true;
+            el.innerHTML += '<div style="color:var(--danger);grid-column:1/-1;padding:8px;font-size:12px;">⚠️ config.py에 GEMINI_API_KEY를 입력해 주세요. <a href="https://aistudio.google.com/apikey" target="_blank" style="color:var(--primary);">무료 발급 →</a></div>';
+        }
+    } catch(e) { console.log('모델 로드 실패:', e); }
+}
+
+function selectModel(no) { selectedModelNo = no; loadModels(); }
+
+async function runStep4() {
+    startTask('step4');
+    try {
+        const res = await fetch('/api/step4/detail',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model_no:selectedModelNo})});
+        const d = await res.json();
+        if (d.error) { alert(d.error); stopTask(); return; }
+        pollProgress(() => { markStepDone(4); loadDetailResults(); });
+    } catch(e) { alert('오류: '+e.message); stopTask(); }
+}
+
+async function loadDetailResults() {
+    try {
+        const res = await fetch('/api/results');
+        const d = await res.json();
+        const el = document.getElementById('step4Result');
+        if (!el || !d.detail_pages || !d.detail_pages.length) return;
+        let html = '';
+        d.detail_pages.forEach(dp => {
+            html += `<div class="detail-result"><div class="dr-name">📁 ${dp.name}</div>`;
+            if (dp.type==='ai_images' && dp.images) {
+                html += `<div class="dr-count">${dp.image_count}장 생성</div><div class="detail-thumbs">`;
+                dp.images.slice(0,8).forEach(img => { html += `<img src="/api/image?path=${encodeURIComponent(img)}" onclick="window.open('/api/image?path=${encodeURIComponent(img)}','_blank')">`; });
+                if (dp.image_count>8) html += `<span style="font-size:11px;color:var(--text-muted);align-self:center;">+${dp.image_count-8}</span>`;
+                html += '</div>';
+            }
+            html += '</div>';
+        });
+        el.innerHTML = html;
+    } catch(e) {}
+}
+
+// ─── Step 5 ─────────────────────────────────────────────
+async function runStep5(doRegister) {
+    if (doRegister && !confirm('⚠️ 정말 쿠팡에 실제 등록하시겠습니까?')) return;
+    startTask('step5');
+    try {
+        const res = await fetch('/api/step5/coupang',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({register:doRegister})});
+        const d = await res.json();
+        if (d.error) { alert(d.error); stopTask(); return; }
+        pollProgress(() => markStepDone(5));
+    } catch(e) { alert('오류: '+e.message); stopTask(); }
+}
+
+// ─── Run All ────────────────────────────────────────────
+async function runAll(mode) {
+    if (!confirm('전체 자동 실행을 시작할까요?')) return;
+    startTask('all');
+    try {
+        const res = await fetch('/api/run-all',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({mode})});
+        const d = await res.json();
+        if (d.error) { alert(d.error); stopTask(); return; }
+        pollProgress(() => { [0,1,2,3,4,5].forEach(i=>markStepDone(i)); loadProducts(); });
+    } catch(e) { alert('오류: '+e.message); stopTask(); }
+}
+
+// ─── Progress ───────────────────────────────────────────
+function startTask(step) {
+    const pc = document.getElementById('progressCard');
+    pc.classList.remove('hidden');
+    document.getElementById('progressFill').style.width = '0%';
+    document.getElementById('progressPct').textContent = '0%';
+    document.getElementById('progressMsg').textContent = '시작 중...';
+    document.getElementById('logBox').innerHTML = '';
+    document.getElementById('progressTitle').innerHTML = '<span class="animate-pulse">⏳</span> 작업 진행 중...';
+    document.querySelectorAll('.btn').forEach(b => b.disabled = true);
+    // 진행 배너를 화면 상단으로 스크롤
+    pc.scrollIntoView({ behavior:'smooth', block:'start' });
+}
+
+function stopTask() {
+    document.getElementById('progressCard').classList.add('hidden');
+    document.querySelectorAll('.btn').forEach(b => b.disabled = false);
+    if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+}
+
+function pollProgress(onComplete) {
+    pollTimer = setInterval(async () => {
+        try {
+            const res = await fetch('/api/task-status');
+            const d = await res.json();
+            document.getElementById('progressFill').style.width = d.progress+'%';
+            document.getElementById('progressPct').textContent = d.progress+'%';
+            document.getElementById('progressMsg').textContent = d.message || '';
+            const lb = document.getElementById('logBox');
+            lb.innerHTML = d.log.map(l => {
+                let c='';
+                if (l.includes('✅')||l.includes('완료')) c='log-success';
+                else if (l.includes('❌')||l.includes('오류')) c='log-error';
+                else if (l.includes('🔍')||l.includes('📊')||l.includes('🤖')||l.includes('🎨')) c='log-info';
+                return `<div class="${c}">${l}</div>`;
+            }).join('');
+            lb.scrollTop = lb.scrollHeight;
+            if (!d.running && d.progress>=100) {
+                clearInterval(pollTimer); pollTimer=null;
+                document.getElementById('progressTitle').textContent = '✅ 작업 완료';
+                document.querySelectorAll('.btn').forEach(b=>b.disabled=false);
+                loadResults();
+                if (onComplete) onComplete();
+            } else if (!d.running) {
+                clearInterval(pollTimer); pollTimer=null;
+                document.getElementById('progressTitle').textContent = '⏹️ 작업 종료';
+                document.querySelectorAll('.btn').forEach(b=>b.disabled=false);
+            }
+        } catch(e) {}
+    }, 800);
+}
+
+// ─── Load Results ───────────────────────────────────────
+async function loadResults() {
+    try {
+        const res = await fetch('/api/results');
+        const d = await res.json();
+        const card = document.getElementById('resultsCard');
+        const el = document.getElementById('resultsContent');
+
+        let html = '<div class="stat-grid">';
+        html += `<div class="stat-card stat-blue"><div class="num">${d.products?d.products.length:0}</div><div class="label">분류된 제품</div></div>`;
+        html += `<div class="stat-card stat-green"><div class="num">${d.excel&&d.excel.exists?'✓':'-'}</div><div class="label">엑셀 파일</div></div>`;
+        const nf = d.naver?d.naver.filter(n=>n.price>0).length:0;
+        html += `<div class="stat-card stat-orange"><div class="num">${nf}/${d.naver?d.naver.length:0}</div><div class="label">최저가 조회</div></div>`;
+        html += `<div class="stat-card stat-purple"><div class="num">${d.detail_pages?d.detail_pages.length:0}</div><div class="label">상세페이지</div></div>`;
+        html += '</div>';
+
+        if (d.excel && d.excel.exists) {
+            html += `<div style="margin-top:12px;padding:10px 14px;background:var(--success-light);border-radius:var(--radius-sm);display:flex;align-items:center;justify-content:space-between;">
+                <span style="font-size:13px;font-weight:600;">📊 ${d.excel.filename}</span>
+                <a href="/api/download?path=${encodeURIComponent(d.excel.path)}" class="btn btn-success" style="text-decoration:none;font-size:12px;padding:6px 12px;">다운로드</a></div>`;
+        }
+
+        if (d.naver && d.naver.length>0) {
+            html += '<table class="data-table" style="margin-top:16px;"><tr><th>제품명</th><th style="text-align:right;">최저가</th><th>쇼핑몰</th></tr>';
+            d.naver.forEach(n => {
+                const p = n.price>0 ? `<b style="color:var(--primary)">${n.price.toLocaleString()}원</b>` : '<span style="color:var(--text-muted)">미확인</span>';
+                html += `<tr><td>${n.product_name}</td><td style="text-align:right">${p}</td><td style="color:var(--text-muted)">${n.mall||'-'}</td></tr>`;
+            });
+            html += '</table>';
+        }
+
+        if (d.detail_pages && d.detail_pages.length>0) {
+            html += '<div style="margin-top:16px;font-size:13px;font-weight:600;">🎨 상세페이지 AI 이미지</div>';
+            d.detail_pages.forEach(dp => {
+                html += `<div class="detail-result"><div class="dr-name">${dp.name}</div>`;
+                if (dp.type==='ai_images'&&dp.images) {
+                    html += `<div class="dr-count">${dp.image_count}장</div><div class="detail-thumbs">`;
+                    dp.images.slice(0,6).forEach(img => { html += `<img src="/api/image?path=${encodeURIComponent(img)}" onclick="window.open('/api/image?path=${encodeURIComponent(img)}','_blank')">`; });
+                    html += '</div>';
+                } else if (dp.html_path) {
+                    html += `<a href="/api/download?path=${encodeURIComponent(dp.html_path)}" style="color:var(--primary);font-size:12px;">📥 다운로드</a>`;
+                }
+                html += '</div>';
+            });
+        }
+
+        if (d.coupang && d.coupang.length>0) {
+            html += '<table class="data-table" style="margin-top:16px;"><tr><th>제품명</th><th>브랜드</th><th style="text-align:right;">판매가</th><th>JSON</th></tr>';
+            d.coupang.forEach(c => {
+                const p = c.sale_price>0 ? `<b style="color:var(--primary)">${c.sale_price.toLocaleString()}원</b>` : '<span style="color:var(--warning)">미설정</span>';
+                html += `<tr><td style="font-weight:600;">${c.product_name||c.filename}</td><td style="color:var(--text-muted)">${c.brand||'-'}</td><td style="text-align:right">${p}</td>
+                    <td><a href="/api/download?path=${encodeURIComponent(c.path)}" style="color:var(--primary);font-size:11px;">📥</a></td></tr>`;
+            });
+            html += '</table>';
+        }
+
+        el.innerHTML = html;
+        card.classList.remove('hidden');
+    } catch(e) { console.error(e); }
+}
+
+// ─── Load Products ──────────────────────────────────────
+async function loadProducts() {
+    try {
+        const res = await fetch('/api/products');
+        const d = await res.json();
+        if (d.products && d.products.length>0) {
+            document.getElementById('productsSection').classList.remove('hidden');
+            document.getElementById('productGrid').innerHTML = d.products.map(p => `
+                <div class="product-card">
+                    ${p.thumbnail ? `<img class="thumb" src="/api/image?path=${encodeURIComponent(p.thumbnail)}" alt="${p.product_name}" />`
+                        : '<div class="thumb" style="display:flex;align-items:center;justify-content:center;font-size:36px;">📦</div>'}
+                    <div class="name">${p.product_name}</div>
+                    <div class="meta">
+                        ${p.brand?`<span>🏷️ ${p.brand}</span>`:''}
+                        <span>📸 ${p.image_count}장</span>
+                        ${p.price_tag?`<span>💰 ${p.price_tag}</span>`:''}
+                    </div>
+                </div>`).join('');
+            markStepDone(1);
+        }
+    } catch(e) {}
+}
+</script>
+</body>
+</html>

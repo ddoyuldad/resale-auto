@@ -1,0 +1,32 @@
+# 환경변수 (API 키 보호)
+.env
+
+# 자동 생성 임시 파일
+.webapp_state.json
+*.state.json
+.run_state.json
+
+# 실행 결과물 (용량 큼, 개인 데이터)
+상세페이지/
+blog_수집자료/
+files/
+*.xlsx
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+venv/
+.venv/
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDE
+.vscode/
+.idea/
