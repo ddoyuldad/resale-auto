@@ -870,7 +870,21 @@ def run(products, base_folder, model_no=1, api_key=None, progress_callback=None)
     for idx, (name, data) in enumerate(sorted(products.items()), 1):
         info = data.get("info", {})
         files = data.get("files", [])
+        folder_path = data.get("folder_path", "")
         pname = info.get("product_name", name)
+
+        # 저장된 경로가 실제로 없으면 folder_path에서 직접 스캔
+        _img_exts = {".jpg", ".jpeg", ".png", ".webp", ".bmp"}
+        valid_files = [f for f in files if os.path.exists(f)]
+        if not valid_files and folder_path and os.path.isdir(folder_path):
+            valid_files = [
+                os.path.join(folder_path, f)
+                for f in sorted(os.listdir(folder_path))
+                if os.path.splitext(f)[1].lower() in _img_exts
+            ]
+            if valid_files:
+                default_progress(f"   📂 경로 복구: {folder_path} ({len(valid_files)}장)")
+        files = valid_files or files
 
         print(f"\n{'─'*60}")
         print(f"   [{idx}/{total}] {pname}")

@@ -258,12 +258,15 @@ def organize_files(source_folder, classification_results, auto_confirm=False):
     for idx, (name, data) in enumerate(sorted(products.items()), 1):
         folder_path = os.path.join(source_folder, f"{idx:02d}_{name}")
         os.makedirs(folder_path, exist_ok=True)
+        new_files = []
         for fpath in data["files"]:
             dest = os.path.join(folder_path, os.path.basename(fpath))
             if os.path.abspath(fpath) != os.path.abspath(dest):
                 shutil.move(fpath, dest)
+            new_files.append(dest)  # 이동 후 새 경로로 업데이트
         data["folder_path"] = folder_path
-        print(f"   ✅ {idx:02d}_{name}/ → {len(data['files'])}장 이동 완료")
+        data["files"] = new_files  # 실제 위치로 경로 갱신
+        print(f"   ✅ {idx:02d}_{name}/ → {len(new_files)}장 이동 완료")
 
     return products
 
