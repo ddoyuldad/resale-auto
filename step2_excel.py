@@ -27,6 +27,8 @@ ACCENT  = "2E6DB4"
 RED     = "C00000"
 GREEN   = "0D7C3F"
 ORANGE  = "D35400"
+COUPANG = "6C3483"  # 쿠팡 판매 확인 컬럼 그룹 (보라)
+MARGIN  = "1A5276"  # 마진 분석 컬럼 그룹 (남색)
 
 def _fill(c):
     return PatternFill("solid", start_color=c, fgColor=c)
@@ -67,6 +69,14 @@ COLUMNS = [
     ("온라인 최저가", None,              14,  CENTER, GREEN),
     ("확인 쇼핑몰",  None,              16,  CENTER, GREEN),
     ("비고",         None,              26,  LEFT,   GREEN),
+    # 쿠팡 판매 확인 (Step 3-2에서 채움)
+    ("쿠팡 최저가",  None,              14,  CENTER, COUPANG),
+    ("쿠팡 판매",    None,              14,  CENTER, COUPANG),
+    # 마진 분석 (Step 3 완료 후 자동 계산)
+    ("네이버 마진",  None,              12,  CENTER, MARGIN),
+    ("네이버 마진율", None,             10,  CENTER, MARGIN),
+    ("쿠팡 마진",    None,              12,  CENTER, MARGIN),
+    ("쿠팡 마진율",  None,              10,  CENTER, MARGIN),
 ]
 
 
@@ -169,6 +179,22 @@ def run(products, output_path):
     gc.fill = _fill(GREEN)
     gc.alignment = CENTER
 
+    # 쿠팡 판매 확인: W~X (2개)
+    ws.merge_cells("W3:X3")
+    gc = ws["W3"]
+    gc.value = "🛒 쿠팡 판매 확인"
+    gc.font = Font(name="맑은 고딕", bold=True, size=10, color=WHITE)
+    gc.fill = _fill(COUPANG)
+    gc.alignment = CENTER
+
+    # 마진 분석: Y~AB (4개)
+    ws.merge_cells("Y3:AB3")
+    gc = ws["Y3"]
+    gc.value = "📈 마진 분석 (네이버 6% / 쿠팡 12%)"
+    gc.font = Font(name="맑은 고딕", bold=True, size=10, color=WHITE)
+    gc.fill = _fill(MARGIN)
+    gc.alignment = CENTER
+
     # row3 나머지 셀 채우기
     for i in range(1, num_cols + 1):
         c = ws.cell(row=3, column=i)
@@ -241,6 +267,16 @@ def run(products, output_path):
         wc(21, "")
         wc(22, "", LEFT)
 
+        # 쿠팡 판매 확인 (Step 3-2에서 채움)
+        wc(23, "")
+        wc(24, "")
+
+        # 마진 분석 (Step 3 완료 후 자동 계산)
+        wc(25, "")
+        wc(26, "")
+        wc(27, "")
+        wc(28, "")
+
         # 썸네일 삽입
         rep_img = pick_representative_image(files)
         if rep_img:
@@ -279,7 +315,7 @@ def run(products, output_path):
     wb.save(output_path)
     print(f"\n✅ 엑셀 저장 완료 → {output_path}")
     print(f"   - {len(products)}개 제품, {total_img}장 이미지")
-    print(f"   - 컬럼: {num_cols}개 (기본9 + 상세7 + 마케팅3 + 가격3)")
+    print(f"   - 컬럼: {num_cols}개 (기본9 + 상세7 + 마케팅3 + 가격3 + 쿠팡2 + 마진4)")
 
     return product_list, output_path
 

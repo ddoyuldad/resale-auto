@@ -7,7 +7,7 @@
     pip install -r requirements.txt
     python webapp.py
 
-  → 브라우저에서 http://localhost:5000 접속
+  → 브라우저에서 http://localhost:8080 접속
 """
 import os, sys, json, shutil, glob, traceback, threading
 from pathlib import Path
@@ -321,6 +321,17 @@ def api_step3_naver():
             if results:
                 found = len([r for r in results if r.get("price", 0) > 0])
                 log(f"✅ 최저가 조회 완료: {found}/{len(results)}개 확인")
+
+            # 마진율 자동 계산 (네이버 데이터 기준)
+            log("📈 마진율 계산 중...")
+            import step3c_margin
+            margin_results = step3c_margin.run(excel_path, product_list)
+            state["margin_results"] = margin_results
+            save_state(state)
+            if margin_results:
+                profitable = sum(1 for r in margin_results if r.get("naver_margin", 0) > 0)
+                log(f"✅ 마진 계산 완료: 수익 가능 {profitable}/{len(margin_results)}개")
+
             task_status["progress"] = 100
         except Exception as e:
             log(f"❌ 오류 발생: {str(e)}")
@@ -329,6 +340,59 @@ def api_step3_naver():
             task_status["running"] = False
 
     thread = threading.Thread(target=run_naver, daemon=True)
+    thread.start()
+
+    return jsonify({"status": "started"})
+
+
+# ─── API: Step 3-2 - 쿠팡 판매 확인 ──────────────────────
+@app.route("/api/step3b/rocket", methods=["POST"])
+def api_step3b_rocket():
+    if task_status["running"]:
+        return jsonify({"error": "이미 작업이 진행 중입니다."}), 400
+
+    state = load_state()
+    product_list = state.get("product_list")
+    excel_path = state.get("excel_path")
+
+    if not product_list or not excel_path:
+        return jsonify({"error": "Step 2를 먼저 실행해 주세요."}), 400
+
+    def run_rocket():
+        task_status["running"] = True
+        task_status["step"] = "step3b"
+        task_status["progress"] = 0
+        task_status["log"] = []
+        try:
+            import step3b_rocket
+
+            log("🛒 쿠팡 판매 확인 중...")
+            results = step3b_rocket.run(product_list, excel_path)
+
+            state["coupang_rocket_results"] = results
+            save_state(state)
+
+            if results:
+                on_cnt = sum(1 for r in results if r.get("on_coupang"))
+                log(f"✅ 쿠팡 조회 완료: 판매중 {on_cnt}/{len(results)}개")
+
+            # 마진율 자동 계산
+            log("📈 마진율 계산 중...")
+            import step3c_margin
+            margin_results = step3c_margin.run(excel_path, product_list)
+            state["margin_results"] = margin_results
+            save_state(state)
+            if margin_results:
+                profitable = sum(1 for r in margin_results if r.get("naver_margin", 0) > 0)
+                log(f"✅ 마진 계산 완료: 수익 가능 {profitable}/{len(margin_results)}개")
+            task_status["progress"] = 100
+        except Exception as e:
+            log(f"❌ 오류 발생: {str(e)}")
+            traceback.print_exc()
+        finally:
+            task_status["running"] = False
+
+    thread = threading.Thread(target=run_rocket, daemon=True)
     thread.start()
 
     return jsonify({"status": "started"})
@@ -584,6 +648,23 @@ def api_run_all():
                 log("⏭️ [Step 3] 네이버 API 키 미설정 — 건너뜀")
             task_status["progress"] = 60
 
+            # Step 3-2
+            task_status["step"] = "step3b"
+            try:
+                import step3b_rocket
+                log("🚀 [Step 3-2] 쿠팡 로켓배송 확인 중...")
+                rocket_results = step3b_rocket.run(product_list, excel_path)
+                state["coupang_rocket_results"] = rocket_results
+                save_state(state)
+                if rocket_results:
+                    rc = sum(1 for r in rocket_results if r.get("rocket"))
+                    log(f"✅ [Step 3-2] 로켓배송 {rc}건 확인")
+                else:
+                    log("⏭️ [Step 3-2] 쿠팡 조회 결과 없음")
+            except Exception as e:
+                log(f"⚠️ [Step 3-2] 쿠팡 조회 오류: {str(e)}")
+            task_status["progress"] = 65
+
             # Step 4
             task_status["step"] = "step4"
             import step4_detail
@@ -690,6 +771,34 @@ def api_results():
                 "product_name": r.get("product_name", ""),
                 "price": r.get("price", 0),
                 "mall": r.get("mall_name", ""),
+            })
+
+    # 쿠팡 판매 확인 결과
+    rocket_results = state.get("coupang_rocket_results", [])
+    results["coupang_rocket"] = []
+    if rocket_results:
+        for r in rocket_results:
+            results["coupang_rocket"].append({
+                "product_name": r.get("product_name", ""),
+                "coupang_price": r.get("coupang_price", 0),
+                "on_coupang": r.get("on_coupang", False),
+                "status_text": r.get("status_text", ""),
+            })
+
+    # 마진 분석 결과
+    margin_results = state.get("margin_results", [])
+    results["margin"] = []
+    if margin_results:
+        for r in margin_results:
+            results["margin"].append({
+                "product_name": r.get("product_name", ""),
+                "buy_price": r.get("buy_price", 0),
+                "naver_price": r.get("naver_price", 0),
+                "coupang_price": r.get("coupang_price", 0),
+                "naver_margin": r.get("naver_margin", 0),
+                "naver_margin_pct": r.get("naver_margin_pct", 0),
+                "coupang_margin": r.get("coupang_margin", 0),
+                "coupang_margin_pct": r.get("coupang_margin_pct", 0),
             })
 
     # 상세페이지 (AI 이미지)

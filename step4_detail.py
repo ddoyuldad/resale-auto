@@ -11,7 +11,8 @@ STEP 4 — 쿠팡/네이버 상세페이지 AI 이미지 자동 생성 v2.0
 
 필요 설치: pip install google-genai Pillow
 """
-import os, sys, json, time, glob
+import os, sys, json, time, glob, re
+import urllib.request, urllib.parse
 from pathlib import Path
 from io import BytesIO
 from datetime import datetime
@@ -27,9 +28,12 @@ from PIL import Image, ImageOps
 # ─── config에서 키 가져오기 ──────────────────────────────
 try:
     from config import GEMINI_API_KEY, DETAIL_PAGE_WIDTH
+    from config import NAVER_CLIENT_ID, NAVER_CLIENT_SECRET
 except ImportError:
     GEMINI_API_KEY = ""
     DETAIL_PAGE_WIDTH = 860
+    NAVER_CLIENT_ID = ""
+    NAVER_CLIENT_SECRET = ""
 
 # ═══════════════════════════════════════════════════════════
 # 모델 목록
@@ -109,6 +113,61 @@ CATEGORY_BACKGROUNDS = {
     "반려동물": "따뜻한 거실 바닥, 반려동물이 함께 있는 일상적이고 따뜻한 분위기",
     "기타": "깔끔한 화이트 스튜디오 배경, 소프트박스 조명, 프로페셔널 촬영 분위기",
 }
+
+
+# ─── 네이버 검색으로 제품 정보 보충 ─────────────────────
+def search_product_info_online(product_name, brand=""):
+    """네이버 쇼핑 API로 제품 정보를 검색해서 보충 정보를 반환"""
+    if not NAVER_CLIENT_ID or not NAVER_CLIENT_SECRET:
+        return {}
+
+    query = f"{brand} {product_name}".strip() if brand else product_name
+    encoded = urllib.parse.quote(query)
+    url = f"https://openapi.naver.com/v1/search/shop.json?query={encoded}&display=5&sort=sim"
+
+    req = urllib.request.Request(url)
+    req.add_header("X-Naver-Client-Id", NAVER_CLIENT_ID)
+    req.add_header("X-Naver-Client-Secret", NAVER_CLIENT_SECRET)
+
+    try:
+        resp = urllib.request.urlopen(req, timeout=10)
+        data = json.loads(resp.read().decode("utf-8"))
+        items = data.get("items", [])
+        if not items:
+            return {}
+
+        # 상위 결과에서 정보 추출
+        extra_info = {
+            "search_titles": [],
+            "price_range": "",
+            "categories": [],
+            "mall_names": [],
+        }
+
+        prices = []
+        for item in items[:5]:
+            title = re.sub(r"<[^>]+>", "", item.get("title", ""))
+            extra_info["search_titles"].append(title)
+            try:
+                price = int(item.get("lprice", 0))
+                if price > 0:
+                    prices.append(price)
+            except (ValueError, TypeError):
+                pass
+            cat = item.get("category1", "")
+            if cat and cat not in extra_info["categories"]:
+                extra_info["categories"].append(cat)
+            mall = item.get("mallName", "")
+            if mall and mall not in extra_info["mall_names"]:
+                extra_info["mall_names"].append(mall)
+
+        if prices:
+            extra_info["price_range"] = f"{min(prices):,}원 ~ {max(prices):,}원"
+            extra_info["lowest_price"] = min(prices)
+
+        return extra_info
+    except Exception:
+        return {}
 
 
 def get_model_by_no(no):
@@ -201,6 +260,24 @@ class DetailPageGenerator:
         else:
             brand, category, feature, selling_point = "", "기타", "", ""
 
+        # 네이버 검색으로 보충 정보 수집
+        self._log("   🔍 네이버에서 제품 정보 검색 중...")
+        online_info = search_product_info_online(product_name, brand)
+        online_context = ""
+        if online_info:
+            titles = online_info.get("search_titles", [])
+            price_range = online_info.get("price_range", "")
+            cats = online_info.get("categories", [])
+            if titles:
+                online_context += f"\n온라인 판매명 참고: {' / '.join(titles[:3])}"
+            if price_range:
+                online_context += f"\n온라인 가격대: {price_range}"
+            if cats:
+                online_context += f"\n온라인 카테고리: {', '.join(cats)}"
+            self._log(f"   ✅ 검색 정보 {len(titles)}건 확보")
+        else:
+            self._log("   ⚠️ 검색 정보 없음 (사진 기반으로 진행)")
+
         prompt = f"""너는 쿠팡/네이버 스마트스토어 전문 상세페이지 기획자야.
 첨부한 제품 사진들을 분석하고 상세페이지 기획을 해줘.
 {"상품명: " + product_name if product_name else "상품명을 사진에서 읽어서 파악해줘."}
@@ -208,6 +285,7 @@ class DetailPageGenerator:
 {"카테고리: " + category if category else ""}
 {"제품특징: " + feature if feature else ""}
 {"셀링포인트: " + selling_point if selling_point else ""}
+{online_context}
 
 반드시 아래 JSON만 출력. 다른 텍스트 금지:
 {{"productName":"제품명","brand":"브랜드","category":"식품/건강기능식품/음료/과자/생활용품/주방용품/미용/반려동물/기타 중 택1","price":"가격대","description":"한줄설명(20자)","targetCustomer":"타겟","sellingPoints":["SP1","SP2","SP3"],"hookingMents":["후킹1(15자)","후킹2","후킹3","후킹4","후킹5"],"painPoints":["고민1(20자)","고민2","고민3"],"features":[{{"title":"5자","mainCopy":"15자","subCopy":"25자"}},{{"title":"5자","mainCopy":"15자","subCopy":"25자"}},{{"title":"5자","mainCopy":"15자","subCopy":"25자"}}],"usageTips":["활용1","활용2","활용3","활용4"],"specs":"스펙요약","priceCompare":"가성비(15자)","ctaCopy":"CTA(15자)"}}"""
@@ -321,6 +399,29 @@ class DetailPageGenerator:
 
         return paths
 
+    # ── 누끼컷 1장만 생성 (간소화) ───────────────────────
+    def gen_nukki_single(self, images):
+        """누끼컷 1장만 생성 (간소화 버전)"""
+        self._log("\n🎯 STEP 1: 누끼컷 생성 중...")
+        if self.is_text_only:
+            self._log("   ⚠️ 이 모델은 이미지 편집 불가 → 건너뜀")
+            return None
+
+        info = self.product_info
+        name = info.get("productName", "제품")
+        brand = info.get("brand", "")
+
+        # 가장 좋은 이미지 선택 (1/3 지점)
+        idx = min(len(images) // 3, len(images) - 1)
+        img = images[idx]
+
+        p = f"""이 {name} 사진에서 배경을 완전히 제거하고 제품만 추출.
+- 순백색(#FFFFFF) 배경, 라벨/텍스트/색상 원본 유지
+- {brand} 로고 절대 변경 금지, 가장자리 자연스럽게, 그림자 제거
+- 중앙 배치, 스튜디오 촬영처럼, 외관 수정 금지 배경만 변경"""
+        result = self._gen_image([p, img], SQUARE_RATIO, "00_nukki.png")
+        return result
+
     # ── 라이프스타일 배경 합성 ────────────────────────────
     def gen_lifestyle(self, nukki_img):
         self._log("\n🌿 STEP 2: 라이프스타일 배경 합성 중...")
@@ -340,9 +441,9 @@ class DetailPageGenerator:
 
         return self._gen_image([p, nukki_img], DETAIL_RATIO, "00_lifestyle.png")
 
-    # ── 상세페이지 12장 생성 ─────────────────────────────
+    # ── 상세페이지 6~7장 생성 ─────────────────────────────
     def gen_pages(self, images, nukki=None, life=None):
-        self._log("\n📄 STEP 3: 상세페이지 12장 생성 중...")
+        self._log("\n📄 STEP 2: 상세페이지 6장 생성 중...")
         info = self.product_info
         n = info.get("productName", "제품")
         b = info.get("brand", "")
@@ -350,67 +451,88 @@ class DetailPageGenerator:
         h = info.get("hookingMents", ["이 가격에 이 퀄리티?"] * 5)
         pp = info.get("painPoints", ["고민1", "고민2", "고민3"])
         ft = info.get("features", [{"title": "특징", "mainCopy": "품질", "subCopy": "설명"}] * 3)
-        us = info.get("usageTips", ["활용1", "활용2", "활용3", "활용4"])
         sp = info.get("specs", "스펙")
-        pc = info.get("priceCompare", "초특가")
-        ct = info.get("ctaCopy", "구매 🛒")
         ds = info.get("description", n)
+        ct = info.get("ctaCopy", "구매 🛒")
+        price = info.get("price", "")
+        ingredients = ""
+        usage = ""
+        if hasattr(self, '_existing_info') and self._existing_info:
+            ingredients = self._existing_info.get("ingredients", "")
+            usage = self._existing_info.get("usage", "")
+            if not price:
+                price = self._existing_info.get("price_tag", "")
 
         base = nukki or images[0]
-        lf = life or base
-        ce = not self.is_text_only  # can_edit: 이미지 편집 가능 여부
+        ce = not self.is_text_only
 
-        # 12장 페이지 정의: (파일명, 참조이미지, 프롬프트)
+        # ── 6장 페이지 구조 ──
         pages = [
-            ("01_hooking.png", lf if ce else None,
-             f"""쿠팡 최상단 후킹 썸네일. {n} 제품. 배경: {bg}, 약간 어둡게.
-제품 중앙~하단 크게. 상단 굵은고딕 "{h[0]}" 흰색+검정그림자.
-하단 "{h[1] if len(h)>1 else ''}" 노란하이라이트. 긴급+프리미엄. {b} 라벨 유지."""),
+            # 1. 후킹 — 강력한 멘트 + 제품 크게
+            ("01_hooking.png", base if ce else None,
+             f"""쿠팡 상세페이지 최상단 후킹 이미지. 세로 비율 3:4.
+가장 중요한 첫 이미지. 스크롤을 멈추게 하는 임팩트.
+제품: {n} (브랜드: {b})
+배경: 짙은 그라데이션 (다크네이비~블랙). 제품을 중앙~하단에 크게 배치.
+상단 30%: 굵은 고딕체 흰색 텍스트 "{h[0]}" — 글자가 크고 명확하게.
+바로 아래: "{h[1] if len(h)>1 else ds}" 노란색 하이라이트 텍스트.
+{f'가격: {price} 빨간색 강조' if price else ''}
+전체적으로 프리미엄+긴급함. {b} 제품 라벨/로고 절대 변경 금지."""),
 
-            ("02_painpoint.png", None,
-             f"""고객고민 공감 이미지. 배경: 연회색 그라데이션.
-상단 "혹시 이런 고민 있으신가요?" 굵은고딕.
-3개포인트: ❌"{pp[0]}" ❌"{pp[1] if len(pp)>1 else ''}" ❌"{pp[2] if len(pp)>2 else ''}" 아이콘+텍스트 세로나열."""),
+            # 2. 제품 소개 — 이름, 브랜드, 핵심 정보
+            ("02_intro.png", base if ce else None,
+             f"""제품 소개 페이지. 깔끔한 화이트~연크림 배경.
+제품: {n} (브랜드: {b})
+상단: "{b}" 브랜드명 작게 + "{n}" 제품명 크고 굵게.
+중앙: 제품 이미지를 깔끔하게 배치.
+하단: "{ds}" 한줄 설명.
+{f'핵심 스펙: {sp}' if sp else ''}
+깔끔하고 정돈된 느낌. 정보 전달 명확하게. 신뢰감.
+{b} 라벨/로고 변경 금지."""),
 
-            ("03_solution.png", lf if ce else None,
-             f"""솔루션 이미지. 밝고 따뜻한톤. 상단 "그래서 준비했습니다 ✨"
-중앙 {n} 크게. 하단 "{ds}". 밝고 희망적. {b} 라벨유지."""),
+            # 3. 핵심 특징 3가지
+            ("03_features.png", base if ce else None,
+             f"""핵심 특징 페이지. 밝은 배경.
+제품: {n}
+상단: "이 제품이 특별한 이유" 굵은 텍스트.
+3가지 특징을 세로로 나열:
+✅ {ft[0]['mainCopy']} — {ft[0]['subCopy']}
+✅ {ft[1]['mainCopy'] if len(ft)>1 else '프리미엄 품질'} — {ft[1]['subCopy'] if len(ft)>1 else '엄선된 원료'}
+✅ {ft[2]['mainCopy'] if len(ft)>2 else '검증된 안전성'} — {ft[2]['subCopy'] if len(ft)>2 else '인증 완료'}
+각 항목에 아이콘 또는 체크마크. 텍스트 크고 읽기 쉽게.
+좌측에 작은 제품 이미지. {b} 라벨 유지."""),
 
-            ("04_feature1.png", base if ce else None,
-             f"""{n} 특징1. 좌40%제품+우60%텍스트. 크림배경.
-메인: "{ft[0]['mainCopy']}" 서브: "{ft[0]['subCopy']}". {b} 라벨유지."""),
+            # 4. 상세 정보 — 성분/스펙/용법
+            ("04_detail.png", base if ce else None,
+             f"""상세 정보 인포그래픽 페이지.
+제품: {n} (브랜드: {b})
+화이트 배경, 정돈된 레이아웃.
+상단: "꼼꼼히 확인하세요 📋" 텍스트.
+{f'주요 성분: {ingredients}' if ingredients else ''}
+{f'용법/용량: {usage}' if usage else ''}
+{f'스펙: {sp}' if sp else ''}
+표/리스트 형식으로 깔끔하게 정리. 작은 아이콘 활용.
+하단에 제품 이미지 작게. 신뢰감 있는 정보 전달."""),
 
-            ("05_feature2.png", base if ce else None,
-             f"""{n} 특징2. 우40%제품+좌60%텍스트. 민트배경.
-메인: "{ft[1]['mainCopy'] if len(ft)>1 else ''}" 서브: "{ft[1]['subCopy'] if len(ft)>1 else ''}". {b} 라벨유지."""),
+            # 5. 리뷰 + 신뢰 + 배송
+            ("05_trust.png", None,
+             f"""고객 리뷰 + 신뢰 + 배송안내 통합 페이지.
+제품: {n}
+상단 50%: "구매자 실제 후기 💬"
+3개 리뷰 카드: ⭐⭐⭐⭐⭐ "재구매 의사 100%!" / ⭐⭐⭐⭐⭐ "{n} 정말 좋아요" / ⭐⭐⭐⭐⭐ "가성비 최고 추천합니다"
+하단 50%: 배송/교환 안내
+🚀 빠른배송 | 🔄 교환/반품 가능 | 💯 정품 보장
+아이콘+텍스트 가로 나열. 크림/화이트 배경."""),
 
-            ("06_feature3.png", base if ce else None,
-             f"""{n} 특징3. 중앙제품+상하텍스트. 블루배경.
-메인: "{ft[2]['mainCopy'] if len(ft)>2 else ''}" 서브: "{ft[2]['subCopy'] if len(ft)>2 else ''}". {b} 라벨유지."""),
-
-            ("07_usage.png", base if ce else None,
-             f"""{n} 활용법. 2x2그리드: {us[0]}/{us[1] if len(us)>1 else ''}/{us[2] if len(us)>2 else ''}/{us[3] if len(us)>3 else ''}.
-각칸 라벨텍스트. 따뜻한 라이프스타일."""),
-
-            ("08_specs.png", base if ce else None,
-             f"""{n} 스펙정보. 화이트배경. 상단 "꼼꼼히 확인하세요 📋"
-중앙: {sp} 인포그래픽. 하단 제품소. 신뢰감."""),
-
-            ("09_review.png", None,
-             f"""리뷰 이미지. 크림배경. 상단 "구매자 솔직후기 💬"
-3개 말풍선카드: ⭐⭐⭐⭐⭐"재구매100%" ⭐⭐⭐⭐⭐"{n}최고" ⭐⭐⭐⭐⭐"가성비 강추"."""),
-
-            ("10_price.png", base if ce else None,
-             f"""{n} 가성비. 밝은배경. 상단 "이 가격, 실화입니다 💰"
-"{pc}" 할인율 빨간글씨. 하단 제품. {b} 라벨유지."""),
-
-            ("11_shipping.png", None,
-             """배송안내. 블루/화이트. 상단 "안심하고 주문하세요 📦"
-🚀빠른배송 🔄교환반품 💯정품보장. 아이콘+텍스트."""),
-
-            ("12_cta.png", lf if ce else None,
-             f"""{n} CTA마무리. 어두운 그라데이션. 제품 크게+금빛하이라이트.
-상단 "더 이상 고민하지 마세요" 흰색. 하단 "{ct}" 노란강조. {b} 라벨유지."""),
+            # 6. CTA 마무리
+            ("06_cta.png", base if ce else None,
+             f"""CTA 마무리 페이지. 어두운 프리미엄 배경 (네이비~블랙 그라데이션).
+제품: {n} (브랜드: {b})
+상단: "더 이상 고민하지 마세요" 흰색 텍스트.
+중앙: 제품 크게 + 골드빛 하이라이트 효과.
+하단: "{ct}" 노란색 강조 버튼 스타일.
+{f'"지금 {price}에 만나보세요"' if price else ''}
+프리미엄+구매욕 자극. {b} 라벨 유지."""),
         ]
 
         results = []
@@ -422,6 +544,105 @@ class DetailPageGenerator:
             time.sleep(WAIT_SEC)
 
         return results
+
+    # ── 제품 사진 갤러리 페이지 (Pillow 직접 생성) ─────────
+    def gen_gallery_page(self, image_paths, width=None):
+        """실제 제품 사진들을 2열 그리드로 배치한 갤러리 이미지 생성 (AI 미사용)"""
+        self._log("\n🖼️ STEP 3: 제품 사진 갤러리 생성 중...")
+
+        target_w = width or DETAIL_PAGE_WIDTH
+        col_count = 2
+        padding = 16
+        cell_w = (target_w - padding * 3) // col_count
+        header_h = 80  # 상단 타이틀 영역
+
+        # 사용할 이미지 (최대 8장)
+        valid_paths = []
+        for p in image_paths:
+            if os.path.isfile(p):
+                valid_paths.append(p)
+            if len(valid_paths) >= 8:
+                break
+
+        if not valid_paths:
+            self._log("   ⚠️ 갤러리에 넣을 이미지가 없습니다.")
+            return None
+
+        # 이미지 로드 & 리사이즈
+        cells = []
+        for p in valid_paths:
+            try:
+                img = Image.open(p).convert("RGB")
+                try:
+                    img = ImageOps.exif_transpose(img)
+                except Exception:
+                    pass
+                # 셀 크기에 맞게 리사이즈 (비율 유지, 중앙 크롭)
+                ratio = max(cell_w / img.width, cell_w / img.height)
+                resized = img.resize((int(img.width * ratio), int(img.height * ratio)), Image.LANCZOS)
+                # 중앙 크롭
+                left = (resized.width - cell_w) // 2
+                top = (resized.height - cell_w) // 2
+                cropped = resized.crop((left, top, left + cell_w, top + cell_w))
+                cells.append(cropped)
+            except Exception as e:
+                self._log(f"   ⚠️ {Path(p).name} 로드 실패: {e}")
+
+        if not cells:
+            return None
+
+        # 전체 높이 계산
+        rows = (len(cells) + col_count - 1) // col_count
+        total_h = header_h + rows * (cell_w + padding) + padding
+
+        # 캔버스 생성 (밝은 회색 배경)
+        canvas = Image.new("RGB", (target_w, total_h), (248, 249, 250))
+
+        # 헤더 배경
+        header_bg = Image.new("RGB", (target_w, header_h), (27, 42, 74))  # 네이비
+        canvas.paste(header_bg, (0, 0))
+
+        # 헤더 텍스트 (PIL로 간단히)
+        try:
+            from PIL import ImageDraw, ImageFont
+            draw = ImageDraw.Draw(canvas)
+            # 시스템 폰트 탐색
+            font = None
+            font_paths = [
+                "C:/Windows/Fonts/malgunbd.ttf",   # 맑은 고딕 Bold
+                "C:/Windows/Fonts/malgun.ttf",      # 맑은 고딕
+                "C:/Windows/Fonts/gulim.ttc",       # 굴림
+                "/usr/share/fonts/truetype/noto/NotoSansCJK-Bold.ttc",
+            ]
+            for fp in font_paths:
+                if os.path.exists(fp):
+                    font = ImageFont.truetype(fp, 28)
+                    break
+            if not font:
+                font = ImageFont.load_default()
+
+            text = "제품 실물 이미지"
+            bbox = draw.textbbox((0, 0), text, font=font)
+            tw = bbox[2] - bbox[0]
+            tx = (target_w - tw) // 2
+            ty = (header_h - 28) // 2
+            draw.text((tx, ty), text, fill=(255, 255, 255), font=font)
+        except Exception:
+            pass  # 폰트 없으면 텍스트 생략
+
+        # 이미지 배치
+        for i, cell in enumerate(cells):
+            row = i // col_count
+            col = i % col_count
+            x = padding + col * (cell_w + padding)
+            y = header_h + padding + row * (cell_w + padding)
+            canvas.paste(cell, (x, y))
+
+        # 저장
+        out_path = self.output_dir / "07_gallery.png"
+        canvas.save(out_path, quality=95)
+        self._log(f"   💾 저장: 07_gallery.png ({len(cells)}장 배치)")
+        return out_path
 
     # ── 통이미지 합치기 ─────────────────────────────────
     def merge_pages_to_single(self, page_results, width=None):
@@ -541,6 +762,9 @@ class DetailPageGenerator:
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
+        # 기존 정보 저장 (gen_pages에서 활용)
+        self._existing_info = existing_info or {}
+
         # STEP 0: 제품 분석
         info = self.analyze_product(images, product_name, existing_info)
 
@@ -549,22 +773,20 @@ class DetailPageGenerator:
         with open(info_path, "w", encoding="utf-8") as f:
             json.dump(info, f, ensure_ascii=False, indent=2)
 
-        # STEP 1: 누끼컷
-        nk = self.gen_nukki(images)
-        nk_img = Image.open(nk[0]) if nk else None
+        # STEP 1: 누끼컷 (1장만)
+        nk = self.gen_nukki_single(images)
+        nk_img = Image.open(nk) if nk else None
         time.sleep(WAIT_SEC)
 
-        # STEP 2: 라이프스타일
-        lf_img = None
-        if nk_img:
-            lp = self.gen_lifestyle(nk_img)
-            if lp:
-                lf_img = Image.open(lp)
-        time.sleep(WAIT_SEC)
-
-        # STEP 3: 상세페이지 12장
-        results = self.gen_pages(images, nk_img, lf_img)
+        # STEP 2: 상세페이지 6장 (AI 생성)
+        results = self.gen_pages(images, nk_img)
         success = sum(1 for r in results if r)
+
+        # STEP 3: 갤러리 페이지 (Pillow, AI 미사용)
+        gallery = self.gen_gallery_page(image_paths)
+        if gallery:
+            results.append(gallery)
+            success += 1
 
         # STEP 4: 통이미지 합치기
         merged_path = self.merge_pages_to_single(results)
@@ -575,8 +797,8 @@ class DetailPageGenerator:
         self._log(f"{'='*60}")
         self._log(f"   📌 모델: {self.model['name']} ({tag})")
         self._log(f"   📦 제품: {info.get('productName', '?')}")
-        self._log(f"   🎯 누끼컷: {len(nk)}장 | 🌿 라이프스타일: {'O' if lf_img else 'X'}")
-        self._log(f"   📄 상세페이지: {success}/12장 성공")
+        self._log(f"   🎯 누끼컷: {'O' if nk else 'X'}")
+        self._log(f"   📄 상세페이지: {success}장 (AI {success - (1 if gallery else 0)} + 갤러리 {1 if gallery else 0})")
         self._log(f"   🖼️ 통이미지: {'O' if merged_path else 'X'}")
 
         if self.model["free"]:
@@ -591,8 +813,8 @@ class DetailPageGenerator:
             "success": True,
             "product_name": info.get("productName", product_name),
             "output_dir": str(self.output_dir.absolute()),
-            "nukki_count": len(nk),
-            "has_lifestyle": bool(lf_img),
+            "nukki_count": 1 if nk else 0,
+            "has_lifestyle": False,
             "page_count": success,
             "merged_image": str(merged_path) if merged_path else None,
             "total_images": self.generated_count,
@@ -682,8 +904,8 @@ def run(products, base_folder, model_no=1, api_key=None, progress_callback=None)
     print(f"{'='*60}")
     merged_count = sum(1 for g in generated if g.get("merged_image"))
     print(f"   📦 제품: {success_count}/{total}개 성공")
-    print(f"   📄 상세페이지: 총 {total_pages}장")
-    print(f"   🖼️ 통이미지: {merged_count}/{total}개 생성")
+    print(f"   📄 상세페이지: 총 {total_pages}장 (제품당 6~7장)")
+    print(f"   🖼️ 통이미지: {merged_count}/{total}개 생성 (한장 등록용)")
     if total_cost > 0:
         print(f"   💰 총 비용: ${total_cost:.2f} (≈{int(total_cost * 1350):,}원)")
     else:

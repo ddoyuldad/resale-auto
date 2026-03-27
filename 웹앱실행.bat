@@ -20,7 +20,7 @@ timeout /t 2 /nobreak >nul
 REM ── 패키지 설치 (화면에 표시) ──
 echo [1/3] 패키지 설치 중...
 echo.
-pip install openpyxl Pillow anthropic requests jinja2 flask google-genai
+pip install openpyxl Pillow anthropic requests jinja2 flask google-genai beautifulsoup4
 echo.
 if errorlevel 1 (
     echo !! pip 설치 실패. Python이 설치되어 있는지 확인해 주세요.

@@ -7,6 +7,7 @@
     Step 1. 이미지 분석 → 제품별 폴더 자동 분류
     Step 2. 엑셀 자동 생성 (썸네일 + 제품 정보)
     Step 3. 네이버 쇼핑 최저가 자동 조회
+    Step 3-2. 쿠팡 로켓배송 확인
     Step 4. 상세페이지 HTML 자동 생성
     Step 5. 쿠팡 등록 데이터 준비
 
@@ -69,6 +70,7 @@ def print_menu():
     print("  [1] 이미지 분석 & 폴더 분류   (Step 1)")
     print("  [2] 엑셀 자동 생성            (Step 2)")
     print("  [3] 네이버 최저가 조회         (Step 3)")
+    print("  [6] 쿠팡 로켓배송 확인         (Step 3-2)")
     print("  [4] 상세페이지 생성            (Step 4)")
     print("  [5] 쿠팡 등록 데이터 준비      (Step 5)")
     print("  ─────────────────────────────────────")
@@ -162,6 +164,29 @@ def run_step3(state, product_list=None, excel_path=None):
 
     return results
 
+def run_step3b(state, product_list=None, excel_path=None):
+    """Step 3-2: 쿠팡 로켓배송 확인"""
+    if product_list is None:
+        product_list = state.get("product_list")
+    if excel_path is None:
+        excel_path = state.get("excel_path")
+
+    if not product_list or not excel_path:
+        print("\n⚠️  Step 2를 먼저 실행해 주세요 (엑셀 파일 필요)")
+        return None
+
+    if not os.path.exists(excel_path):
+        print(f"\n⚠️  엑셀 파일을 찾을 수 없습니다: {excel_path}")
+        return None
+
+    import step3b_rocket
+    results = step3b_rocket.run(product_list, excel_path)
+
+    state["coupang_rocket_results"] = results
+    save_state(state)
+
+    return results
+
 def run_step4(state, products=None):
     """Step 4: 상세페이지 생성"""
     if products is None:
@@ -242,6 +267,10 @@ def run_all(state):
     print("\n" + "─" * 60)
     naver_results = run_step3(state, product_list, excel_path)
 
+    # Step 3-2
+    print("\n" + "─" * 60)
+    run_step3b(state, product_list, excel_path)
+
     # Step 4
     print("\n" + "─" * 60)
     run_step4(state, products)
@@ -261,6 +290,10 @@ def run_all(state):
     if naver_results:
         found = len([r for r in naver_results if r.get("price", 0) > 0])
         print(f"     • 최저가 조회: {found}/{len(naver_results)}개 확인")
+    rocket_results = state.get("coupang_rocket_results", [])
+    if rocket_results:
+        rocket_cnt = sum(1 for r in rocket_results if r.get("rocket"))
+        print(f"     • 로켓배송: {rocket_cnt}/{len(rocket_results)}개 확인")
     folder = state.get("source_folder", "")
     detail_dir = os.path.join(folder, "상세페이지")
     if os.path.isdir(detail_dir):
@@ -286,6 +319,8 @@ def interactive_mode():
             run_step2(state)
         elif choice == '3':
             run_step3(state)
+        elif choice == '6':
+            run_step3b(state)
         elif choice == '4':
             run_step4(state)
         elif choice == '5':
@@ -306,8 +341,8 @@ def main():
     parser = argparse.ArgumentParser(description="매입건 자동화 프로그램")
     parser.add_argument("--all", metavar="폴더경로",
                         help="전체 자동 실행 (폴더 경로 지정)")
-    parser.add_argument("--step", type=int, choices=[1,2,3,4,5],
-                        help="특정 단계만 실행 (1~5)")
+    parser.add_argument("--step", type=int, choices=[1,2,3,4,5,6],
+                        help="특정 단계만 실행 (1~6, 6=쿠팡 로켓배송)")
     parser.add_argument("--folder", metavar="경로",
                         help="작업 폴더 경로")
     args = parser.parse_args()
@@ -331,6 +366,7 @@ def main():
             3: run_step3,
             4: run_step4,
             5: run_step5,
+            6: run_step3b,
         }
         step_funcs[args.step](state)
     else:

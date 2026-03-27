@@ -201,6 +201,9 @@
         <div class="sidebar-item" onclick="showStep(3)">
             <div class="step-badge">4</div> 최저가 조회
         </div>
+        <div class="sidebar-item" onclick="showStep('3b')">
+            <div class="step-badge" style="background:#6c3483;color:white;font-size:9px;">🚀</div> 쿠팡 로켓배송
+        </div>
         <div class="sidebar-item" onclick="showStep(4)">
             <div class="step-badge">5</div> 상세페이지
         </div>
@@ -270,7 +273,7 @@
         <div class="step-panel" id="step2">
             <div class="card">
                 <div class="card-header"><h2>📊 엑셀 자동 생성</h2></div>
-                <p class="card-desc">제품 정보 + 썸네일 포함 엑셀 파일을 생성합니다. (22개 컬럼)</p>
+                <p class="card-desc">제품 정보 + 썸네일 포함 엑셀 파일을 생성합니다. (24개 컬럼: 기본9+상세7+마케팅3+가격3+쿠팡2)</p>
                 <button class="btn btn-primary btn-lg" onclick="runStep2()">📊 엑셀 생성</button>
                 <div id="step2Result" style="margin-top:14px;"></div>
             </div>
@@ -283,6 +286,21 @@
                 <p class="card-desc">네이버 쇼핑 API로 각 제품의 온라인 최저가를 조회하고 엑셀에 자동 입력합니다.</p>
                 <button class="btn btn-primary btn-lg" onclick="runStep3()">🔍 최저가 조회</button>
                 <div id="step3Result" style="margin-top:14px;"></div>
+            </div>
+        </div>
+
+        <!-- ─── Step 3b: 쿠팡 로켓배송 확인 ─── -->
+        <div class="step-panel" id="step3b">
+            <div class="card">
+                <div class="card-header"><h2>🛒 쿠팡 판매 확인 + 마진 분석</h2></div>
+                <p class="card-desc">쿠팡 판매 여부를 확인하고, 매입가 대비 네이버/쿠팡 마진율을 자동 계산합니다.</p>
+                <div style="background:var(--border-light); border-radius:var(--radius-sm); padding:12px 16px; margin-bottom:16px; font-size:12px; color:var(--text-secondary); line-height:1.8;">
+                    <strong>확인 방식:</strong> 네이버 쇼핑 API에서 쿠팡 판매 여부 + 최저가 자동 추출<br>
+                    <strong>마진 계산:</strong> 네이버 수수료 6% / 쿠팡 수수료 12% 적용<br>
+                    <strong>결과 반영:</strong> 엑셀 W~X열 (쿠팡), Y~AB열 (마진 분석)
+                </div>
+                <button class="btn btn-primary btn-lg" onclick="runStep3b()" style="background:#6c3483;">🛒 쿠팡 확인 + 마진 분석 시작</button>
+                <div id="step3bResult" style="margin-top:14px;"></div>
             </div>
         </div>
 
@@ -302,7 +320,7 @@
 
                 <!-- 생성 과정 안내 -->
                 <div style="background:var(--border-light); border-radius:var(--radius-sm); padding:12px 16px; margin-bottom:16px; font-size:12px; color:var(--text-secondary); line-height:1.8;">
-                    <strong>생성 과정:</strong> 제품 분석 → 누끼컷 3장 → 라이프스타일 배경 1장 → 상세페이지 12장 (후킹/고민공감/솔루션/특징3/활용법/스펙/리뷰/가성비/배송/CTA)
+                    <strong>생성 과정:</strong> 제품 분석(+네이버 검색 보충) → 누끼컷 1장 → 상세페이지 6장 (후킹/제품소개/특징/상세정보/리뷰+신뢰/CTA) + 제품 갤러리 → 한장 통이미지
                 </div>
 
                 <button class="btn btn-primary btn-lg" onclick="runStep4()" id="btnRunStep4">🎨 상세페이지 생성 시작</button>
@@ -349,7 +367,12 @@ document.addEventListener('DOMContentLoaded', () => {
 let isScrolling = false; // 프로그래밍 스크롤 중 Observer 무시
 function showStep(idx) {
     currentStep = idx;
-    document.querySelectorAll('.sidebar-item').forEach((t,i) => t.classList.toggle('active', i===idx));
+    const items = document.querySelectorAll('.sidebar-item');
+    items.forEach((t,i) => {
+        // 사이드바 아이템 순서: 0,1,2,3(최저가),3b(로켓),4(상세),5(쿠팡등록)
+        const itemKeys = [0,1,2,3,'3b',4,5];
+        t.classList.toggle('active', itemKeys[i]===idx);
+    });
     const panel = document.getElementById('step'+idx);
     if (panel) {
         isScrolling = true;
@@ -360,22 +383,27 @@ function showStep(idx) {
 function markStepDone(idx) {
     completedSteps.add(idx);
     const items = document.querySelectorAll('.sidebar-item');
-    if (items[idx]) items[idx].classList.add('done');
+    const itemKeys = [0,1,2,3,'3b',4,5];
+    const i = itemKeys.indexOf(idx);
+    if (i>=0 && items[i]) items[i].classList.add('done');
 }
 
 // ─── IntersectionObserver (스크롤에 따라 사이드바 하이라이트) ──
 (function initScrollSpy() {
     const panels = document.querySelectorAll('.step-panel');
     const sideItems = document.querySelectorAll('.sidebar-item');
+    const itemKeys = [0,1,2,3,'3b',4,5];
     const observer = new IntersectionObserver(entries => {
         if (isScrolling) return;
         entries.forEach(entry => {
             if (entry.isIntersecting) {
                 const id = entry.target.id;
-                const idx = parseInt(id.replace('step',''));
-                if (!isNaN(idx)) {
+                const key = id.replace('step','');
+                const idx = key==='3b' ? '3b' : parseInt(key);
+                const sideIdx = itemKeys.indexOf(idx);
+                if (sideIdx>=0) {
                     currentStep = idx;
-                    sideItems.forEach((t,i) => t.classList.toggle('active', i===idx));
+                    sideItems.forEach((t,i) => t.classList.toggle('active', i===sideIdx));
                 }
             }
         });
@@ -520,6 +548,55 @@ async function runStep3() {
     } catch(e) { alert('오류: '+e.message); stopTask(); }
 }
 
+// ─── Step 3b: 쿠팡 로켓배송 ─────────────────────────────
+async function runStep3b() {
+    startTask('step3b');
+    try {
+        const res = await fetch('/api/step3b/rocket',{method:'POST'});
+        const d = await res.json();
+        if (d.error) { alert(d.error); stopTask(); return; }
+        pollProgress(() => { markStepDone('3b'); loadRocketResults(); });
+    } catch(e) { alert('오류: '+e.message); stopTask(); }
+}
+
+async function loadRocketResults() {
+    try {
+        const res = await fetch('/api/results');
+        const d = await res.json();
+        const el = document.getElementById('step3bResult');
+        if (!el) return;
+
+        let html = '';
+
+        // 쿠팡 판매 결과
+        if (d.coupang_rocket && d.coupang_rocket.length) {
+            const onCoupang = d.coupang_rocket.filter(r=>r.on_coupang).length;
+            html += `<div style="background:#ede9fe;border:1px solid #c4b5fd;border-radius:var(--radius-sm);padding:12px 16px;margin-bottom:12px;">
+                <span style="font-size:14px;font-weight:700;color:#6c3483;">🛒 쿠팡 판매중 ${onCoupang}/${d.coupang_rocket.length}개 제품</span></div>`;
+        }
+
+        // 마진 분석 결과
+        if (d.margin && d.margin.length) {
+            const profitable = d.margin.filter(r=>r.naver_margin>0).length;
+            html += `<div style="background:#e8f8f5;border:1px solid #a3e4d7;border-radius:var(--radius-sm);padding:12px 16px;margin-bottom:12px;">
+                <span style="font-size:14px;font-weight:700;color:#1a5276;">📈 수익 가능 ${profitable}/${d.margin.length}개 제품 (네이버 기준)</span></div>`;
+
+            html += '<table class="data-table"><tr><th>제품명</th><th style="text-align:right;">매입가</th><th style="text-align:right;">네이버 마진</th><th>네이버 마진율</th><th style="text-align:right;">쿠팡 마진</th><th>쿠팡 마진율</th></tr>';
+            d.margin.forEach(r => {
+                const buy = r.buy_price > 0 ? `${r.buy_price.toLocaleString()}원` : '-';
+                const nm = r.naver_margin !== 0 ? `<b style="color:${r.naver_margin>0?'#0d7c3f':'#c00000'}">${r.naver_margin>0?'+':''}${r.naver_margin.toLocaleString()}원</b>` : '<span style="color:#aaa">-</span>';
+                const np = r.naver_margin_pct !== 0 ? `<b style="color:${r.naver_margin_pct>0?'#0d7c3f':'#c00000'}">${r.naver_margin_pct>0?'+':''}${r.naver_margin_pct}%</b>` : '<span style="color:#aaa">-</span>';
+                const cm = r.coupang_margin !== 0 ? `<b style="color:${r.coupang_margin>0?'#0d7c3f':'#c00000'}">${r.coupang_margin>0?'+':''}${r.coupang_margin.toLocaleString()}원</b>` : '<span style="color:#aaa">-</span>';
+                const cp = r.coupang_margin_pct !== 0 ? `<b style="color:${r.coupang_margin_pct>0?'#0d7c3f':'#c00000'}">${r.coupang_margin_pct>0?'+':''}${r.coupang_margin_pct}%</b>` : '<span style="color:#aaa">-</span>';
+                html += `<tr><td>${r.product_name}</td><td style="text-align:right">${buy}</td><td style="text-align:right">${nm}</td><td style="text-align:center">${np}</td><td style="text-align:right">${cm}</td><td style="text-align:center">${cp}</td></tr>`;
+            });
+            html += '</table>';
+        }
+
+        if (html) el.innerHTML = html;
+    } catch(e) {}
+}
+
 // ─── Step 4: AI 상세페이지 ──────────────────────────────
 async function loadModels() {
     try {
@@ -598,7 +675,7 @@ async function runAll(mode) {
         const res = await fetch('/api/run-all',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({mode})});
         const d = await res.json();
         if (d.error) { alert(d.error); stopTask(); return; }
-        pollProgress(() => { [0,1,2,3,4,5].forEach(i=>markStepDone(i)); loadProducts(); });
+        pollProgress(() => { [0,1,2,3,'3b',4,5].forEach(i=>markStepDone(i)); loadProducts(); loadRocketResults(); });
     } catch(e) { alert('오류: '+e.message); stopTask(); }
 }
 
@@ -635,7 +712,7 @@ function pollProgress(onComplete) {
                 let c='';
                 if (l.includes('✅')||l.includes('완료')) c='log-success';
                 else if (l.includes('❌')||l.includes('오류')) c='log-error';
-                else if (l.includes('🔍')||l.includes('📊')||l.includes('🤖')||l.includes('🎨')) c='log-info';
+                else if (l.includes('🔍')||l.includes('📊')||l.includes('🤖')||l.includes('🎨')||l.includes('🚀')) c='log-info';
                 return `<div class="${c}">${l}</div>`;
             }).join('');
             lb.scrollTop = lb.scrollHeight;
@@ -667,6 +744,12 @@ async function loadResults() {
         html += `<div class="stat-card stat-green"><div class="num">${d.excel&&d.excel.exists?'✓':'-'}</div><div class="label">엑셀 파일</div></div>`;
         const nf = d.naver?d.naver.filter(n=>n.price>0).length:0;
         html += `<div class="stat-card stat-orange"><div class="num">${nf}/${d.naver?d.naver.length:0}</div><div class="label">최저가 조회</div></div>`;
+        const coupangCnt = d.coupang_rocket ? d.coupang_rocket.filter(r=>r.on_coupang).length : 0;
+        const coupangTotal = d.coupang_rocket ? d.coupang_rocket.length : 0;
+        html += `<div class="stat-card" style="background:#ede9fe;color:#6c3483;"><div class="num">${coupangCnt}/${coupangTotal}</div><div class="label">🛒 쿠팡 판매</div></div>`;
+        const profitCnt = d.margin ? d.margin.filter(r=>r.naver_margin>0).length : 0;
+        const marginTotal = d.margin ? d.margin.length : 0;
+        html += `<div class="stat-card" style="background:#e8f8f5;color:#1a5276;"><div class="num">${profitCnt}/${marginTotal}</div><div class="label">📈 수익 가능</div></div>`;
         html += `<div class="stat-card stat-purple"><div class="num">${d.detail_pages?d.detail_pages.length:0}</div><div class="label">상세페이지</div></div>`;
         html += '</div>';
 
