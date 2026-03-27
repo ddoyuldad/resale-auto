@@ -437,6 +437,15 @@ def api_step4_detail():
 
     data = request.json or {}
     model_no = data.get("model_no", 1)  # 1~4 모델 선택
+    product_keys = data.get("product_keys", [])  # 빈 배열 = 전체
+
+    # 선택된 제품만 필터링 (비어있으면 전체)
+    if product_keys:
+        selected_products = {k: v for k, v in products.items() if k in product_keys}
+        if not selected_products:
+            return jsonify({"error": "선택한 제품을 찾을 수 없습니다."}), 400
+    else:
+        selected_products = products
 
     def run_detail():
         task_status["running"] = True
@@ -456,11 +465,12 @@ def api_step4_detail():
 
             model = step4_detail.get_model_by_no(model_no)
             tag = "🟢무료" if model["free"] else "🔴유료"
-            log(f"🎨 상세페이지 AI 이미지 생성 시작 ({model['name']} {tag})")
+            cnt_str = f"{len(selected_products)}/{len(products)}개 제품" if product_keys else f"전체 {len(products)}개 제품"
+            log(f"🎨 상세페이지 AI 이미지 생성 시작 ({model['name']} {tag}) — {cnt_str}")
             log(f"   🔑 Gemini API 키: {gemini_key[:10]}...{gemini_key[-4:]}")
 
             generated = step4_detail.run(
-                products, folder,
+                selected_products, folder,
                 model_no=model_no,
                 api_key=gemini_key,
                 progress_callback=progress_cb,
@@ -901,6 +911,7 @@ def api_products():
             thumb = files[idx] if idx < len(files) else files[0]
 
         result.append({
+            "key": name,
             "name": name,
             "product_name": info.get("product_name", name),
             "brand": info.get("brand", ""),
@@ -912,7 +923,7 @@ def api_products():
             "folder_path": data.get("folder_path", ""),
         })
 
-    return jsonify({"products": result, "folder": folder})
+    return jsonify({"products": result, "total": len(result), "folder": folder})
 
 
 # ─── API: 파일 다운로드 ──────────────────────────────────────
