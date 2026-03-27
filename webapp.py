@@ -495,6 +495,77 @@ def api_step4_detail():
     return jsonify({"status": "started", "model_no": model_no})
 
 
+# ─── API: 후킹 이미지 단독 테스트 ─────────────────────────────
+@app.route("/api/step4/hooking", methods=["POST"])
+def api_step4_hooking():
+    """후킹 이미지(01_hooking.png) 1장만 빠르게 생성"""
+    if task_status["running"]:
+        return jsonify({"error": "이미 작업이 진행 중입니다."}), 400
+
+    state = load_state()
+    products = state.get("products")
+    if not products:
+        return jsonify({"error": "Step 1을 먼저 실행해 주세요."}), 400
+
+    cfg = reload_config()
+    gemini_key = cfg.GEMINI_API_KEY
+    if not gemini_key:
+        return jsonify({"error": "Gemini API 키가 설정되지 않았습니다."}), 400
+
+    data = request.json or {}
+    product_key = data.get("product_key", "")
+    model_no = data.get("model_no", 1)
+
+    if not product_key:
+        return jsonify({"error": "제품을 선택해 주세요."}), 400
+
+    folder = state.get("source_folder", SCRIPT_DIR)
+
+    def run_hooking():
+        task_status["running"] = True
+        task_status["step"] = "step4"
+        task_status["progress"] = 0
+        task_status["log"] = []
+        try:
+            import step4_detail
+            importlib.reload(step4_detail)
+
+            def progress_cb(msg, pct=None):
+                log(msg)
+                if pct is not None:
+                    task_status["progress"] = pct
+
+            model = step4_detail.get_model_by_no(model_no)
+            tag = "🟢무료" if model["free"] else "🔴유료"
+            log(f"🎯 후킹 이미지 테스트 시작 ({model['name']} {tag})")
+
+            result = step4_detail.run_hooking_test(
+                product_key, products, folder,
+                model_no=model_no,
+                api_key=gemini_key,
+                progress_callback=progress_cb,
+            )
+
+            if result.get("success"):
+                log(f"✅ 후킹 이미지 생성 완료!")
+                log(f"   📁 저장 위치: {result.get('output_dir', '')}")
+                task_status["hooking_result"] = result
+            else:
+                log(f"❌ 후킹 이미지 생성 실패: {result.get('error', '')}")
+
+            task_status["progress"] = 100
+        except Exception as e:
+            log(f"❌ 오류: {str(e)}")
+            traceback.print_exc()
+        finally:
+            task_status["running"] = False
+
+    thread = threading.Thread(target=run_hooking, daemon=True)
+    thread.start()
+
+    return jsonify({"status": "started", "product_key": product_key})
+
+
 # ─── API: 상세페이지 모델 목록 ────────────────────────────────
 @app.route("/api/step4/models")
 def api_step4_models():

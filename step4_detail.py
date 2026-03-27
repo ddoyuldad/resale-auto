@@ -467,17 +467,51 @@ class DetailPageGenerator:
         ce = not self.is_text_only
 
         # ── 6장 페이지 구조 ──
+        target = info.get("targetCustomer", "")
+        category = info.get("category", "")
+        pain0 = pp[0] if pp else ""
+        ft0 = ft[0]["mainCopy"] if ft else ""
+        ft1 = ft[1]["mainCopy"] if len(ft) > 1 else ""
+        # 후킹 핵심 카피: 제품 정체가 명확히 드러나는 문장 생성
+        hooking_copy = (
+            f"{target}이라면 주목! {n}가 해결합니다"
+            if target else
+            f"{category} 고민? {n}로 해결하세요"
+            if category else h[0]
+        )
+
         pages = [
-            # 1. 후킹 — 강력한 멘트 + 제품 크게
+            # 1. 후킹 — 제품 정체 + 구매욕 자극
             ("01_hooking.png", base if ce else None,
-             f"""쿠팡 상세페이지 최상단 후킹 이미지. 세로 비율 3:4.
-가장 중요한 첫 이미지. 스크롤을 멈추게 하는 임팩트.
-제품: {n} (브랜드: {b})
-배경: 짙은 그라데이션 (다크네이비~블랙). 제품을 중앙~하단에 크게 배치.
-상단 30%: 굵은 고딕체 흰색 텍스트 "{h[0]}" — 글자가 크고 명확하게.
-바로 아래: "{h[1] if len(h)>1 else ds}" 노란색 하이라이트 텍스트.
-{f'가격: {price} 빨간색 강조' if price else ''}
-전체적으로 프리미엄+긴급함. {b} 제품 라벨/로고 절대 변경 금지."""),
+             f"""쿠팡/네이버 상세페이지 최상단 후킹 이미지. 세로 비율 3:4.
+소비자가 스크롤을 멈추고 "이게 내게 필요한 제품이다"라고 느끼게 만드는 이미지.
+
+[제품 정보]
+- 브랜드: {b}
+- 제품명: {n}
+- 카테고리: {category}
+- 타겟 고객: {target}
+- 제품 핵심 설명: {ds}
+- 주요 기능: {ft0}{f" / {ft1}" if ft1 else ""}
+- 고객 고민 해결: {pain0}
+{f"- 가격: {price}" if price else ""}
+
+[레이아웃 — 반드시 준수]
+배경: 짙은 다크네이비~블랙 그라데이션. 프리미엄하고 임팩트 있게.
+
+상단 40%: 다음 두 줄 텍스트를 화면 꽉 차게 크고 굵게 표현
+  1줄: "{b} {n}" — 이게 어떤 제품인지 핵심을 담은 카피 (한국어, 흰색 굵은 고딕)
+  2줄: "{h[0]}" — 노란색 하이라이트 박스 안에 강조 텍스트
+
+중앙~하단 55%: 제품 원본 이미지를 크고 선명하게 배치. 프리미엄 조명 효과.
+
+하단 5%: "{b}" 브랜드명 작게.
+{f'가격 강조: "{price}" 빨간색으로 눈에 띄게' if price else ""}
+
+[주의사항]
+- {b} 제품 라벨/로고/텍스트 절대 변경·합성 금지. 있는 그대로 보여줄 것.
+- 상단 텍스트가 "이 제품이 무엇인지, 왜 나에게 필요한지" 명확히 전달해야 함.
+- 범용적인 광고 문구("최고의 선택" 등) 사용 금지. 이 제품만의 특성을 담을 것."""),
 
             # 2. 제품 소개 — 이름, 브랜드, 핵심 정보
             ("02_intro.png", base if ce else None,
@@ -927,6 +961,168 @@ def run(products, base_folder, model_no=1, api_key=None, progress_callback=None)
     print(f"   📁 위치: {output_base}/")
 
     return generated
+
+
+# ═══════════════════════════════════════════════════════════
+# 후킹 이미지 단독 생성 (테스트용)
+# ═══════════════════════════════════════════════════════════
+def run_hooking_test(product_key, products, base_folder,
+                     model_no=1, api_key=None, progress_callback=None):
+    """
+    후킹 이미지(01_hooking.png) 1장만 빠르게 생성.
+    전체 상세페이지 없이 최상단 이미지만 테스트할 때 사용.
+
+    Returns:
+        dict: {"success": bool, "hooking_path": str, "product_name": str}
+    """
+    def _log(msg, pct=None):
+        if progress_callback:
+            progress_callback(msg, pct)
+        print(msg)
+
+    # 제품 데이터 가져오기
+    data = products.get(product_key)
+    if not data:
+        # key 매칭 실패 시 제품명으로도 검색
+        for k, v in products.items():
+            if v.get("info", {}).get("product_name", "") == product_key:
+                data = v
+                break
+    if not data:
+        _log(f"❌ 제품을 찾을 수 없습니다: {product_key}")
+        return {"success": False, "error": "제품 없음"}
+
+    info = data.get("info", {})
+    files = data.get("files", [])
+    folder_path = data.get("folder_path", "")
+    pname = info.get("product_name", product_key)
+
+    # 파일 경로 복구
+    _img_exts = {".jpg", ".jpeg", ".png", ".webp", ".bmp"}
+    valid_files = [f for f in files if os.path.exists(f)]
+    if not valid_files and folder_path and os.path.isdir(folder_path):
+        valid_files = [
+            os.path.join(folder_path, f)
+            for f in sorted(os.listdir(folder_path))
+            if os.path.splitext(f)[1].lower() in _img_exts
+        ]
+
+    if not valid_files:
+        _log(f"❌ 이미지를 찾을 수 없습니다: {pname}")
+        return {"success": False, "error": "이미지 없음"}
+
+    model = get_model_by_no(model_no)
+    cfg_key = api_key or GEMINI_API_KEY
+    if not cfg_key:
+        return {"success": False, "error": "API 키 없음"}
+
+    _log(f"\n🎯 후킹 이미지 테스트 — {pname}", 10)
+    _log(f"   모델: {model['name']} | 이미지: {len(valid_files)}장")
+
+    generator = DetailPageGenerator(
+        api_key=cfg_key,
+        model=model,
+        progress_callback=_log,
+    )
+
+    # 이미지 로드
+    images = []
+    for p in valid_files:
+        try:
+            img = Image.open(p)
+            try:
+                img = ImageOps.exif_transpose(img)
+            except Exception:
+                pass
+            img = img.convert("RGB")
+            if max(img.size) > 2048:
+                r = 2048 / max(img.size)
+                img = img.resize((int(img.size[0]*r), int(img.size[1]*r)), Image.LANCZOS)
+            images.append(img)
+        except Exception as e:
+            _log(f"   ⚠️ {Path(p).name} 로드 실패: {e}")
+
+    if not images:
+        return {"success": False, "error": "유효한 이미지 없음"}
+
+    # 출력 폴더: 상세페이지/후킹테스트/제품명/
+    output_base = os.path.join(base_folder, "상세페이지", "후킹테스트")
+    safe_name = pname.replace("/", "_").replace("\\", "_")[:30]
+    ts = datetime.now().strftime("%H%M%S")
+    output_dir = Path(os.path.join(output_base, f"{safe_name}_{ts}"))
+    output_dir.mkdir(parents=True, exist_ok=True)
+    generator.output_dir = output_dir
+
+    # 제품 분석
+    _log("   🔍 제품 분석 중...", 20)
+    generator._existing_info = info
+    product_info = generator.analyze_product(images, pname, info)
+    generator.product_info = product_info
+
+    # 누끼컷
+    _log("   ✂️ 누끼컷 생성 중...", 40)
+    nk_img = generator.gen_nukki_single(images)
+
+    # 후킹 이미지만 생성
+    _log("   🎨 후킹 이미지 생성 중...", 60)
+
+    # gen_pages와 동일한 변수 준비
+    n = product_info.get("productName", pname)
+    b = product_info.get("brand", info.get("brand", ""))
+    h = product_info.get("hookingMents", ["한정수량 특가!"] * 5)
+    pp_list = product_info.get("painPoints", [])
+    ft_list = product_info.get("features", [{"title":"", "mainCopy":"", "subCopy":""}]*3)
+    ds = product_info.get("description", n)
+    price = product_info.get("price", info.get("price_tag", ""))
+    target = product_info.get("targetCustomer", "")
+    category = product_info.get("category", info.get("category", ""))
+    pain0 = pp_list[0] if pp_list else ""
+    ft0 = ft_list[0]["mainCopy"] if ft_list else ""
+    ft1 = ft_list[1]["mainCopy"] if len(ft_list) > 1 else ""
+
+    base_img = nk_img if nk_img and not generator.is_text_only else images[0]
+
+    hooking_prompt = f"""쿠팡/네이버 상세페이지 최상단 후킹 이미지. 세로 비율 3:4.
+소비자가 스크롤을 멈추고 "이게 내게 필요한 제품이다"라고 느끼게 만드는 이미지.
+
+[제품 정보]
+- 브랜드: {b}
+- 제품명: {n}
+- 카테고리: {category}
+- 타겟 고객: {target}
+- 제품 핵심 설명: {ds}
+- 주요 기능: {ft0}{f" / {ft1}" if ft1 else ""}
+- 고객 고민 해결: {pain0}
+{f"- 가격: {price}" if price else ""}
+
+[레이아웃 — 반드시 준수]
+배경: 짙은 다크네이비~블랙 그라데이션. 프리미엄하고 임팩트 있게.
+
+상단 40%: 다음 두 줄 텍스트를 화면 꽉 차게 크고 굵게 표현
+  1줄: "{b} {n}" — 이게 어떤 제품인지 핵심을 담은 카피 (한국어, 흰색 굵은 고딕)
+  2줄: "{h[0]}" — 노란색 하이라이트 박스 안에 강조 텍스트
+
+중앙~하단 55%: 제품 원본 이미지를 크고 선명하게 배치. 프리미엄 조명 효과.
+
+하단 5%: "{b}" 브랜드명 작게.
+{f'가격 강조: "{price}" 빨간색으로 눈에 띄게' if price else ""}
+
+[주의사항]
+- {b} 제품 라벨/로고/텍스트 절대 변경·합성 금지. 있는 그대로 보여줄 것.
+- 상단 텍스트가 "이 제품이 무엇인지, 왜 나에게 필요한지" 명확히 전달해야 함.
+- 범용적인 광고 문구("최고의 선택" 등) 사용 금지. 이 제품만의 특성을 담을 것."""
+
+    contents = [hooking_prompt, base_img] if base_img else [hooking_prompt]
+    hooking_path = generator._gen_image(contents, DETAIL_RATIO, "01_hooking.png")
+
+    _log(f"   ✅ 후킹 이미지 완료!", 100)
+
+    return {
+        "success": bool(hooking_path and Path(hooking_path).exists()),
+        "hooking_path": str(hooking_path) if hooking_path else "",
+        "product_name": pname,
+        "output_dir": str(output_dir),
+    }
 
 
 # ═══════════════════════════════════════════════════════════

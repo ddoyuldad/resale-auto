@@ -388,12 +388,20 @@
                     </div>
                 </div>
 
-                <!-- 실행 버튼 -->
-                <div class="btn-group">
-                    <button class="btn btn-primary btn-lg" onclick="runStep4(false)" id="btnRunStep4">🎨 선택한 제품 생성</button>
-                    <button class="btn btn-lg" onclick="runStep4(true)" id="btnRunStep4All" style="background:#555d6b; color:#fff;">📦 전체 생성</button>
+                <!-- 후킹 테스트 안내 -->
+                <div style="background:#fff8e1;border:1px solid #ffe082;border-radius:var(--radius-sm);padding:10px 14px;margin-bottom:12px;font-size:12px;color:#795548;line-height:1.7;">
+                    <strong>💡 후킹 이미지 테스트</strong>: 전체 생성 전에 최상단 이미지 1장만 먼저 확인할 수 있어요.
+                    카드에서 제품 1개만 선택 후 <strong>🎯 후킹 테스트</strong>를 클릭하세요. (약 1~2분 소요)
                 </div>
 
+                <!-- 실행 버튼 -->
+                <div class="btn-group" style="flex-wrap:wrap;gap:8px;">
+                    <button class="btn btn-primary btn-lg" onclick="runStep4(false)" id="btnRunStep4">🎨 선택한 제품 생성</button>
+                    <button class="btn btn-lg" onclick="runStep4(true)" id="btnRunStep4All" style="background:#555d6b;color:#fff;">📦 전체 생성</button>
+                    <button class="btn btn-lg" onclick="runHookingTest()" id="btnHookingTest" style="background:#f57c00;color:#fff;">🎯 후킹 테스트 (1장)</button>
+                </div>
+
+                <div id="hookingResult" style="margin-top:10px;"></div>
                 <div id="step4Result" style="margin-top:14px;"></div>
             </div>
         </div>
@@ -805,6 +813,44 @@ function updateStep4Count() {
     if (btn) btn.textContent = `🎨 선택한 ${sel}개 생성`;
     const btnAll = document.getElementById('btnRunStep4All');
     if (btnAll) btnAll.textContent = `📦 전체 ${total}개 생성`;
+}
+
+async function runHookingTest() {
+    const keys = Array.from(step4Selected);
+    if (!keys.length) { alert('제품을 1개 선택해 주세요.'); return; }
+    if (keys.length > 1) {
+        if (!confirm(`${keys.length}개 선택되어 있습니다. 첫 번째 제품(${step4Products.find(p=>p.key===keys[0])?.name})으로 테스트할까요?`)) return;
+    }
+    const productKey = keys[0];
+    const pname = step4Products.find(p => p.key === productKey)?.name || productKey;
+
+    document.getElementById('hookingResult').innerHTML = `<div style="padding:12px;background:#fff3e0;border-radius:8px;font-size:13px;color:#e65100;">
+        ⏳ "${pname}" 후킹 이미지 생성 중... (1~2분 소요)</div>`;
+
+    startTask('step4');
+    try {
+        const res = await fetch('/api/step4/hooking', {method:'POST', headers:{'Content-Type':'application/json'},
+            body: JSON.stringify({product_key: productKey, model_no: selectedModelNo})});
+        const d = await res.json();
+        if (d.error) { alert(d.error); stopTask(); document.getElementById('hookingResult').innerHTML=''; return; }
+        pollProgress(() => {
+            // 완료 후 결과 표시
+            fetch('/api/task-status').then(r=>r.json()).then(s=>{
+                const hr = s.hooking_result;
+                if (hr && hr.hooking_path) {
+                    document.getElementById('hookingResult').innerHTML = `
+                        <div style="padding:12px;background:#e8f5e9;border-radius:8px;">
+                            <div style="font-size:13px;font-weight:600;color:#2e7d32;margin-bottom:8px;">✅ 후킹 이미지 완료! — ${hr.product_name}</div>
+                            <img src="/api/image?path=${encodeURIComponent(hr.hooking_path)}"
+                                 style="max-width:280px;border-radius:6px;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,0.2);"
+                                 onclick="window.open('/api/image?path=${encodeURIComponent(hr.hooking_path)}','_blank')"
+                                 title="클릭하면 원본 크기로 열림">
+                            <div style="font-size:11px;color:#666;margin-top:6px;">📁 ${hr.output_dir}</div>
+                        </div>`;
+                }
+            }).catch(()=>{});
+        });
+    } catch(e) { alert('오류: '+e.message); stopTask(); }
 }
 
 async function runStep4(runAll) {
