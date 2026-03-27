@@ -200,20 +200,26 @@ def api_step1_classify():
         task_status["log"] = []
         try:
             import step1_classify
+            importlib.reload(step1_classify)
 
             if mode == "existing":
                 log("📂 기존 폴더 구조에서 제품 정보를 읽어옵니다...")
                 products = step1_classify.read_existing_folders(folder)
             elif mode == "ai":
-                if not ANTHROPIC_API_KEY:
-                    log("❌ Anthropic API 키가 설정되지 않았습니다.")
+                cfg = reload_config()
+                gemini_key = cfg.GEMINI_API_KEY
+                if not gemini_key:
+                    log("❌ Gemini API 키가 설정되지 않았습니다. .env 파일에 GEMINI_API_KEY를 입력해 주세요.")
                     task_status["running"] = False
                     return
-                log("🤖 AI 이미지 분석을 시작합니다...")
-                products = step1_classify.classify_with_ai(folder)
-                if products:
+                log("🤖 Gemini AI 이미지 분석을 시작합니다...")
+                image_files = step1_classify.get_image_files(folder)
+                products_raw = step1_classify.classify_with_ai(image_files, gemini_key)
+                if products_raw:
                     log("📁 폴더 정리 중...")
-                    step1_classify.organize_files(folder, products)
+                    products = step1_classify.organize_files(folder, products_raw, auto_confirm=True)
+                else:
+                    products = None
             else:
                 log("❌ 웹앱에서는 수동 분류를 지원하지 않습니다. AI 또는 기존 폴더 모드를 사용해 주세요.")
                 task_status["running"] = False
@@ -255,6 +261,10 @@ def api_step2_excel():
     if not products:
         return jsonify({"error": "Step 1을 먼저 실행해 주세요."}), 400
 
+    # 사용자 지정 출력 폴더
+    req_data = request.get_json(silent=True) or {}
+    custom_folder = req_data.get("output_folder", "").strip()
+
     def run_excel():
         task_status["running"] = True
         task_status["step"] = "step2"
@@ -263,7 +273,12 @@ def api_step2_excel():
         try:
             import step2_excel
 
-            folder = state.get("source_folder", SCRIPT_DIR)
+            # 사용자 지정 폴더가 있으면 그곳에, 없으면 사진 폴더에 저장
+            if custom_folder and os.path.isdir(custom_folder):
+                folder = custom_folder
+                log(f"📁 저장 폴더: {folder}")
+            else:
+                folder = state.get("source_folder", SCRIPT_DIR)
             timestamp = datetime.now().strftime("%Y%m%d_%H%M")
             output_path = os.path.join(folder, f"매입건_제품정리_{timestamp}.xlsx")
 
@@ -311,6 +326,7 @@ def api_step3_naver():
         task_status["log"] = []
         try:
             import step3_naver
+            importlib.reload(step3_naver)
 
             log("🔍 네이버 쇼핑 최저가 조회 중...")
             results = step3_naver.run(product_list, excel_path)
@@ -325,6 +341,7 @@ def api_step3_naver():
             # 마진율 자동 계산 (네이버 데이터 기준)
             log("📈 마진율 계산 중...")
             import step3c_margin
+            importlib.reload(step3c_margin)
             margin_results = step3c_margin.run(excel_path, product_list)
             state["margin_results"] = margin_results
             save_state(state)
@@ -365,6 +382,7 @@ def api_step3b_rocket():
         task_status["log"] = []
         try:
             import step3b_rocket
+            importlib.reload(step3b_rocket)
 
             log("🛒 쿠팡 판매 확인 중...")
             results = step3b_rocket.run(product_list, excel_path)
@@ -379,6 +397,7 @@ def api_step3b_rocket():
             # 마진율 자동 계산
             log("📈 마진율 계산 중...")
             import step3c_margin
+            importlib.reload(step3c_margin)
             margin_results = step3c_margin.run(excel_path, product_list)
             state["margin_results"] = margin_results
             save_state(state)
@@ -601,10 +620,18 @@ def api_run_all():
                 log("📂 [Step 1] 기존 폴더에서 제품 정보 읽기...")
                 products = step1_classify.read_existing_folders(folder)
             else:
-                log("🤖 [Step 1] AI 이미지 분석 시작...")
-                products = step1_classify.classify_with_ai(folder)
-                if products:
-                    step1_classify.organize_files(folder, products)
+                log("🤖 [Step 1] Gemini AI 이미지 분석 시작...")
+                cfg = reload_config()
+                gemini_key = cfg.GEMINI_API_KEY
+                if not gemini_key:
+                    log("❌ Gemini API 키가 설정되지 않았습니다. .env에 GEMINI_API_KEY를 입력해 주세요.")
+                    return
+                image_files = step1_classify.get_image_files(folder)
+                products_raw = step1_classify.classify_with_ai(image_files, gemini_key)
+                if products_raw:
+                    products = step1_classify.organize_files(folder, products_raw, auto_confirm=True)
+                else:
+                    products = None
 
             if not products:
                 log("❌ 제품 분류 실패. 중단합니다.")
@@ -652,7 +679,8 @@ def api_run_all():
             task_status["step"] = "step3b"
             try:
                 import step3b_rocket
-                log("🚀 [Step 3-2] 쿠팡 로켓배송 확인 중...")
+                importlib.reload(step3b_rocket)
+                log("🛒 [Step 3-2] 쿠팡 판매 확인 중...")
                 rocket_results = step3b_rocket.run(product_list, excel_path)
                 state["coupang_rocket_results"] = rocket_results
                 save_state(state)

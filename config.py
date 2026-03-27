@@ -12,9 +12,8 @@ load_dotenv()  # .env 파일에서 환경변수 자동 로드
 NAVER_CLIENT_ID     = os.environ.get("NAVER_CLIENT_ID", "")
 NAVER_CLIENT_SECRET = os.environ.get("NAVER_CLIENT_SECRET", "")
 
-# ── Claude AI (이미지 자동 분류용) ─────────────────────────
+# ── Claude AI (사용 안 함 — AI 분류는 Gemini로 대체됨) ──────
 # 발급: https://console.anthropic.com/
-# 없으면 빈 문자열("") → 수동 분류 모드로 전환됩니다.
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
 
 # ── 쿠팡 OPEN API (선택사항) ──────────────────────────────
@@ -23,8 +22,9 @@ COUPANG_ACCESS_KEY = os.environ.get("COUPANG_ACCESS_KEY", "")
 COUPANG_SECRET_KEY = os.environ.get("COUPANG_SECRET_KEY", "")
 COUPANG_VENDOR_ID  = os.environ.get("COUPANG_VENDOR_ID", "")
 
-# ── Google Gemini API (상세페이지 AI 이미지 생성) ────────────
+# ── Google Gemini API (이미지 자동 분류 + 상세페이지 생성) ────
 # 무료 발급: https://aistudio.google.com/apikey
+# 없으면 빈 문자열("") → 수동 분류 모드로 전환됩니다.
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
 
 # ── 프로그램 설정 ─────────────────────────────────────────
