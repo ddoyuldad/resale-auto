@@ -62,7 +62,7 @@ def run(excel_path, product_list):
         row = product["row"]
         name = product["name"]
 
-        # 매입가 읽기 (G열 = 7번 컬럼: "확인 가격")
+        # 공급가 읽기 (G열 = 7번 컬럼: "공급가")
         buy_price = parse_price(ws.cell(row=row, column=7).value)
 
         # 네이버 최저가 읽기 (T열 = 20번 컬럼)
@@ -131,9 +131,10 @@ def run(excel_path, product_list):
         cell_cp.border = border
 
         # 로그
-        n_str = f"네이버 {n_margin:+,}원({n_pct:+.1f}%)" if naver_price > 0 else "네이버 -"
-        c_str = f"쿠팡 {c_margin:+,}원({c_pct:+.1f}%)" if coupang_price > 0 else "쿠팡 -"
-        print(f"   [{i+1}/{len(product_list)}] {name}: 매입 {buy_price:,}원 → {n_str} | {c_str}")
+        buy_str = f"공급가 {buy_price:,}원" if buy_price > 0 else "공급가 미입력"
+        n_str = f"네이버 {n_margin:+,}원({n_pct:+.1f}%)" if naver_price > 0 and buy_price > 0 else f"네이버 {naver_price:,}원" if naver_price > 0 else "네이버 -"
+        c_str = f"쿠팡 {c_margin:+,}원({c_pct:+.1f}%)" if coupang_price > 0 and buy_price > 0 else f"쿠팡 {coupang_price:,}원" if coupang_price > 0 else "쿠팡 -"
+        print(f"   [{i+1}/{len(product_list)}] {name}: {buy_str} → {n_str} | {c_str}")
 
         results.append({
             "product_name": name,

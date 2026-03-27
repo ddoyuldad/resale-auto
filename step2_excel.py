@@ -50,7 +50,7 @@ COLUMNS = [
     ("브랜드/제조사",  "brand",           16,  CENTER, NAVY),
     ("카테고리",      "category",        14,  CENTER, NAVY),
     ("규격/용량",     "spec",            16,  CENTER, NAVY),
-    ("확인 가격",     "price_tag",       11,  CENTER, NAVY),
+    ("공급가",        "price_tag",       11,  CENTER, NAVY),
     ("제품 특징",     "feature",         38,  LEFT,   NAVY),
     ("사진수",        None,               7,  CENTER, NAVY),
     # 상세정보 그룹
@@ -240,7 +240,7 @@ def run(products, output_path):
         wc(5, info.get("category", ""))
         wc(6, info.get("spec", ""))
 
-        # 가격은 빨간 볼드
+        # 공급가 (매대 가격표 인식값)
         price_tag = info.get("price_tag", "")
         wc(7, price_tag, CENTER,
            Font(name="맑은 고딕", bold=True, size=11, color=RED))
